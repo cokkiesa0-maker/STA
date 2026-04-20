@@ -2774,43 +2774,49 @@ local instantInteractConn = nil
 
 local function stopInstantInteract()
     if instantInteractConn then
-        instantInteractConn:Disconnect()
+        if typeof(instantInteractConn) == "RBXScriptConnection" then
+            instantInteractConn:Disconnect()
+        else
+            task.cancel(instantInteractConn)
+        end
         instantInteractConn = nil
     end
 end
 
 local function startInstantInteract()
     stopInstantInteract()
-    
-    instantInteractConn = RunService.Heartbeat:Connect(function()
-        if not Toggles.InstantInteract or not Toggles.InstantInteract.Value then return end
-        
-        local char = LocalPlayer.Character
-        local hrp = char and char:FindFirstChild("HumanoidRootPart")
-        if not hrp then return end
-        
-        -- Identify the closest interactable item
-        -- This uses the same remote used for picking up items found in the script's header [cite: 185, 186]
-        if droppedItemsFolder then
-            for _, item in ipairs(droppedItemsFolder:GetChildren()) do
-                local mainPart = getItemMainPart(item)
-                if mainPart then
-                    local dist = (hrp.Position - mainPart.Position).Magnitude
-                    
-                    -- Only fire if within legitimate interaction range (usually ~7 studs)
-                    -- to avoid triggering server-side distance anti-cheats
-                    if dist < 7 then
-                        pcall(function()
-                            -- Fires the interaction remote immediately
-                            -- Bypassing the client-side hold timer entirely
-                            pickUpItemRemote:FireServer(item)
-                        end)
-                        
-                        -- Small anti-cheat delay to prevent 'Rate Limit' flags 
-                        task.wait(0.1 + math.random() * 0.05)
+    instantInteractConn = task.spawn(function()
+        while Toggles.InstantInteract and Toggles.InstantInteract.Value do
+            local char = LocalPlayer.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            
+            if hrp and droppedItemsFolder then
+                local myPos = hrp.Position
+                local nearestItem = nil
+                local nearestDist = 7 -- Legitimate interaction range
+
+                -- 1. Find ONLY the single closest item
+                for _, item in ipairs(droppedItemsFolder:GetChildren()) do
+                    local mainPart = getItemMainPart(item)
+                    if mainPart then
+                        local dist = (myPos - mainPart.Position).Magnitude
+                        if dist < nearestDist then
+                            nearestDist = dist
+                            nearestItem = item
+                        end
                     end
                 end
+
+                -- 2. Only interact with that one item
+                if nearestItem then
+                    pcall(function()
+                        pickUpItemRemote:FireServer(nearestItem)
+                    end)
+                    -- Anti-lag/Anti-cheat delay
+                    task.wait(0.15) 
+                end
             end
+            task.wait(0.1) -- Run check 10 times per second instead of 60+
         end
     end)
 end
