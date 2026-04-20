@@ -82,6 +82,7 @@ local killAuraIndicatorCircle = nil  -- [ADDED v7.3.3] Kill Aura circle on curre
 -- repairAura state managed by startRepairAura/stopRepairAura
 local repairAuraConn = nil
 local instantInteractConn = nil
+local autoFuelConn = nil
 local originalValues = {
     walkSpeed = nil,
 }
@@ -2822,6 +2823,48 @@ local function startInstantInteract()
 end
 
 -- ============================================
+-- AUTO-FUEL SYSTEM
+-- ============================================
+local function startAutoFuel()
+    if autoFuelConn then autoFuelConn:Disconnect() end
+    
+    autoFuelConn = RunService.Heartbeat:Connect(function()
+        if not Toggles.AutoFuel or not Toggles.AutoFuel.Value then return end
+        
+        local char = LocalPlayer.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if not hrp then return end
+
+        local generator = workspace:FindFirstChild("Generator") or workspace:FindFirstChild("Large Generator")
+        if not generator then return end
+
+        local range = 20
+        local myPos = hrp.Position
+
+        if droppedItemsFolder then
+            for _, item in ipairs(droppedItemsFolder:GetChildren()) do
+                local name = item.Name:lower()
+                if name:find("fuel") or name:find("gas") or name:find("jerry") then
+                    local mainPart = getItemMainPart(item)
+                    if mainPart and (myPos - mainPart.Position).Magnitude <= range then
+                        pcall(function()
+                            mainPart.CFrame = generator:IsA("Model") and (generator.PrimaryPart and generator.PrimaryPart.CFrame or generator:FindFirstChildWhichIsA("BasePart").CFrame) or generator.CFrame
+                        end)
+                    end
+                end
+            end
+        end
+    end)
+end
+
+local function stopAutoFuel()
+    if autoFuelConn then 
+        autoFuelConn:Disconnect() 
+        autoFuelConn = nil
+    end
+end
+
+-- ============================================
 -- BRING PICKUP ITEM
 -- Loop-teleport + PickUpItem remote. Works for all E-key items.
 -- ============================================
@@ -3640,6 +3683,29 @@ instantInteractionGroup:AddToggle("InstantInteraction", {
 
 instantInteractionGroup:AddLabel("Auto-fires prompts within range", { DoesWrap = true })
 
+-- ============================================
+-- EXPLOITS TAB: RIGHT COLUMN (Fourth)
+-- ============================================
+-- [ADDED] Auto-Fuel Group
+local autoFuelGroup = Tabs.Exploits:AddRightGroupbox("Auto Refuel", "droplet")
+
+autoFuelGroup:AddToggle("AutoFuel", {
+    Text    = "Auto Bring Fuel",
+    Default = false,
+    Tooltip = "Instantly teleports nearby fuel cans to the generator position",
+    Callback = function(state)
+        if state then
+            startAutoFuel()
+            Library:Notify({ Title = "Auto Fuel", Description = "Enabled - Bringing fuel to Gen!", Time = 2 })
+        else
+            stopAutoFuel()
+            Library:Notify({ Title = "Auto Fuel", Description = "Disabled", Time = 2 })
+        end
+    end,
+})
+
+autoFuelGroup:AddLabel("Brings fuel within 20 studs to generator", { DoesWrap = true })
+
 end -- Exploits Tab local scope
 
 -- ============================================
@@ -3812,6 +3878,7 @@ Library:OnUnload(function()
     stopBringPickup()
     stopRepairAura()
     stopInstantInteract()
+    stopAutoFuel()
     stopFly()
     stopAutoSprint()
     stopKillAura()
@@ -3850,6 +3917,7 @@ Library:OnUnload(function()
 
     -- [ADD THIS HERE FOR SAFETY]
     if stopInstantInteraction then stopInstantInteraction() end
+    if stopAutoFuel then stopAutoFuel() end
 
     Library:Notify({ Title = "SPYMM", Description = "Unloaded. Bye!", Time = 3 })
     print("SPYMM v8.2 unloaded.")
