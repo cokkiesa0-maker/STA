@@ -3688,7 +3688,7 @@ instantInteractionGroup:AddLabel("Auto-fires prompts within range", { DoesWrap =
 -- EXPLOITS TAB: RIGHT COLUMN (Fourth)
 -- ============================================
 -- [ADDED] Auto-Fuel Group
-local autoFuelGroup = local autoFuelGroup = Tabs.Exploits:AddRightGroupbox("Auto Refuel", "droplet")
+local autoFuelGroup = Tabs.Exploits:AddRightGroupbox("Auto Refuel", "droplet")
 
 autoFuelGroup:AddToggle("AutoFuel", {
     Text    = "Auto Bring Fuel",
