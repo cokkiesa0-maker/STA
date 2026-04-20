@@ -2825,8 +2825,15 @@ end
 -- ============================================
 -- AUTO-FUEL SYSTEM
 -- ============================================
+local function stopAutoFuel()
+    if autoFuelConn then
+        autoFuelConn:Disconnect()
+        autoFuelConn = nil
+    end
+end
+
 local function startAutoFuel()
-    if autoFuelConn then autoFuelConn:Disconnect() end
+    stopAutoFuel() -- Ensure no double-loops
     
     autoFuelConn = RunService.Heartbeat:Connect(function()
         if not Toggles.AutoFuel or not Toggles.AutoFuel.Value then return end
@@ -2835,33 +2842,27 @@ local function startAutoFuel()
         local hrp = char and char:FindFirstChild("HumanoidRootPart")
         if not hrp then return end
 
-        local generator = workspace:FindFirstChild("Generator") or workspace:FindFirstChild("Large Generator")
-        if not generator then return end
-
-        local range = 20
+        -- Your specific generator coordinate
+        local targetPos = Vector3.new(-0.15, 6.73, 0.15)
+        local range = 15 -- Radius to detect fuel
         local myPos = hrp.Position
 
         if droppedItemsFolder then
             for _, item in ipairs(droppedItemsFolder:GetChildren()) do
                 local name = item.Name:lower()
+                -- Filter for fuel objects matching your game's naming
                 if name:find("fuel") or name:find("gas") or name:find("jerry") then
                     local mainPart = getItemMainPart(item)
                     if mainPart and (myPos - mainPart.Position).Magnitude <= range then
                         pcall(function()
-                            mainPart.CFrame = generator:IsA("Model") and (generator.PrimaryPart and generator.PrimaryPart.CFrame or generator:FindFirstChildWhichIsA("BasePart").CFrame) or generator.CFrame
+                            -- Teleport fuel to the generator
+                            mainPart.CFrame = CFrame.new(targetPos)
                         end)
                     end
                 end
             end
         end
     end)
-end
-
-local function stopAutoFuel()
-    if autoFuelConn then 
-        autoFuelConn:Disconnect() 
-        autoFuelConn = nil
-    end
 end
 
 -- ============================================
@@ -3687,24 +3688,22 @@ instantInteractionGroup:AddLabel("Auto-fires prompts within range", { DoesWrap =
 -- EXPLOITS TAB: RIGHT COLUMN (Fourth)
 -- ============================================
 -- [ADDED] Auto-Fuel Group
-local autoFuelGroup = Tabs.Exploits:AddRightGroupbox("Auto Refuel", "droplet")
+local autoFuelGroup = local autoFuelGroup = Tabs.Exploits:AddRightGroupbox("Auto Refuel", "droplet")
 
 autoFuelGroup:AddToggle("AutoFuel", {
     Text    = "Auto Bring Fuel",
     Default = false,
-    Tooltip = "Instantly teleports nearby fuel cans to the generator position",
+    Tooltip = "Teleports nearby fuel to Gen: -0.15, 6.73, 0.15",
     Callback = function(state)
         if state then
             startAutoFuel()
-            Library:Notify({ Title = "Auto Fuel", Description = "Enabled - Bringing fuel to Gen!", Time = 2 })
+            Library:Notify({ Title = "Auto Fuel", Description = "Enabled - Refueling Gen", Time = 2 })
         else
             stopAutoFuel()
             Library:Notify({ Title = "Auto Fuel", Description = "Disabled", Time = 2 })
         end
     end,
 })
-
-autoFuelGroup:AddLabel("Brings fuel within 20 studs to generator", { DoesWrap = true })
 
 end -- Exploits Tab local scope
 
