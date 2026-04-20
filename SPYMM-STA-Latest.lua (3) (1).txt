@@ -2823,7 +2823,7 @@ local function startInstantInteract()
 end
 
 -- ============================================
--- AUTO-FUEL SYSTEM (WITH DRAG REMOTE)
+-- AUTO-FUEL SYSTEM (DRAG SYSTEM BYPASS)
 -- ============================================
 local function startAutoFuel()
     stopAutoFuel()
@@ -2833,13 +2833,11 @@ local function startAutoFuel()
         
         local char = LocalPlayer.Character
         local hrp = char and char:FindFirstChild("HumanoidRootPart")
-        local dragSystem = char and char:FindFirstChild("DragSystem")
-        if not hrp or not dragSystem then return end
+        local dragFolder = char and char:FindFirstChild("DragSystem") -- Your DragSystem location
+        
+        if not hrp or not dragFolder then return end
 
-        -- Locate the drag remote (usually named 'Drag' or 'Toggle')
-        local dragRemote = dragSystem:FindFirstChild("Drag") or dragSystem:FindFirstChildOfClass("RemoteEvent")
-        if not dragRemote then return end
-
+        -- Coordinates for the generator
         local targetPos = Vector3.new(-0.15, 6.73, 0.15)
         local range = 15
         local myPos = hrp.Position
@@ -2847,20 +2845,32 @@ local function startAutoFuel()
         if droppedItemsFolder then
             for _, item in ipairs(droppedItemsFolder:GetChildren()) do
                 local name = item.Name:lower()
+                
+                -- Check for Fuel items
                 if name:find("fuel") or name:find("gas") or name:find("jerry") then
                     local mainPart = getItemMainPart(item)
                     
                     if mainPart and (myPos - mainPart.Position).Magnitude <= range then
+                        -- Check if we are already dragging something
+                        local currentDragged = dragFolder:FindFirstChild("Object") -- Adjust if game uses different name
+                        
                         pcall(function()
-                            -- 1. Tell the server we are dragging the item
-                            dragRemote:FireServer(item, true)
-                            
-                            -- 2. Teleport the item to the generator coordinates
-                            mainPart.CFrame = CFrame.new(targetPos)
-                            
-                            -- 3. Tell the server we dropped the item at the destination
-                            task.wait(0.05)
-                            dragRemote:FireServer(item, false)
+                            -- 1. Simulate the "Click/Drag" via the Remote inside DragSystem
+                            -- Note: Some games use a RemoteEvent named 'Toggle', 'Drag', or 'Remote'
+                            local remote = dragFolder:FindFirstChildOfClass("RemoteEvent")
+                            if remote then
+                                -- Tell the game we are picking up the fuel
+                                remote:FireServer(item, true) 
+                                
+                                -- 2. Instantly move the item to the Generator
+                                mainPart.CFrame = CFrame.new(targetPos)
+                                
+                                -- 3. Small wait so the game registers the position change
+                                task.wait(0.1) 
+                                
+                                -- 4. Drop the item into the generator
+                                remote:FireServer(item, false)
+                            end
                         end)
                     end
                 end
