@@ -82,7 +82,6 @@ local killAuraIndicatorCircle = nil  -- [ADDED v7.3.3] Kill Aura circle on curre
 -- repairAura state managed by startRepairAura/stopRepairAura
 local repairAuraConn = nil
 local instantInteractConn = nil
-local autoFuelConn = nil
 local originalValues = {
     walkSpeed = nil,
 }
@@ -2823,63 +2822,6 @@ local function startInstantInteract()
 end
 
 -- ============================================
--- AUTO-FUEL SYSTEM (DRAG SYSTEM BYPASS)
--- ============================================
-local function startAutoFuel()
-    stopAutoFuel()
-    
-    autoFuelConn = RunService.Heartbeat:Connect(function()
-        if not Toggles.AutoFuel or not Toggles.AutoFuel.Value then return end
-        
-        local char = LocalPlayer.Character
-        local hrp = char and char:FindFirstChild("HumanoidRootPart")
-        local dragFolder = char and char:FindFirstChild("DragSystem") -- Your DragSystem location
-        
-        if not hrp or not dragFolder then return end
-
-        -- Coordinates for the generator
-        local targetPos = Vector3.new(-0.15, 6.73, 0.15)
-        local range = 15
-        local myPos = hrp.Position
-
-        if droppedItemsFolder then
-            for _, item in ipairs(droppedItemsFolder:GetChildren()) do
-                local name = item.Name:lower()
-                
-                -- Check for Fuel items
-                if name:find("fuel") or name:find("gas") or name:find("jerry") then
-                    local mainPart = getItemMainPart(item)
-                    
-                    if mainPart and (myPos - mainPart.Position).Magnitude <= range then
-                        -- Check if we are already dragging something
-                        local currentDragged = dragFolder:FindFirstChild("Object") -- Adjust if game uses different name
-                        
-                        pcall(function()
-                            -- 1. Simulate the "Click/Drag" via the Remote inside DragSystem
-                            -- Note: Some games use a RemoteEvent named 'Toggle', 'Drag', or 'Remote'
-                            local remote = dragFolder:FindFirstChildOfClass("RemoteEvent")
-                            if remote then
-                                -- Tell the game we are picking up the fuel
-                                remote:FireServer(item, true) 
-                                
-                                -- 2. Instantly move the item to the Generator
-                                mainPart.CFrame = CFrame.new(targetPos)
-                                
-                                -- 3. Small wait so the game registers the position change
-                                task.wait(0.1) 
-                                
-                                -- 4. Drop the item into the generator
-                                remote:FireServer(item, false)
-                            end
-                        end)
-                    end
-                end
-            end
-        end
-    end)
-end
-
--- ============================================
 -- BRING PICKUP ITEM
 -- Loop-teleport + PickUpItem remote. Works for all E-key items.
 -- ============================================
@@ -3698,27 +3640,6 @@ instantInteractionGroup:AddToggle("InstantInteraction", {
 
 instantInteractionGroup:AddLabel("Auto-fires prompts within range", { DoesWrap = true })
 
--- ============================================
--- EXPLOITS TAB: RIGHT COLUMN (Fourth)
--- ============================================
--- [ADDED] Auto-Fuel Group
-local autoFuelGroup = Tabs.Exploits:AddRightGroupbox("Auto Refuel", "droplet")
-
-autoFuelGroup:AddToggle("AutoFuel", {
-    Text    = "Auto Bring Fuel",
-    Default = false,
-    Tooltip = "Teleports nearby fuel to Gen: -0.15, 6.73, 0.15",
-    Callback = function(state)
-        if state then
-            startAutoFuel()
-            Library:Notify({ Title = "Auto Fuel", Description = "Enabled - Refueling Gen", Time = 2 })
-        else
-            stopAutoFuel()
-            Library:Notify({ Title = "Auto Fuel", Description = "Disabled", Time = 2 })
-        end
-    end,
-})
-
 end -- Exploits Tab local scope
 
 -- ============================================
@@ -3930,7 +3851,6 @@ Library:OnUnload(function()
 
     -- [ADD THIS HERE FOR SAFETY]
     if stopInstantInteraction then stopInstantInteraction() end
-    if stopAutoFuel then stopAutoFuel() end
 
     Library:Notify({ Title = "SPYMM", Description = "Unloaded. Bye!", Time = 3 })
     print("SPYMM v8.2 unloaded.")
