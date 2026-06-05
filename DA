@@ -5,40 +5,80 @@ local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
 
--- Define key objects
-local batteryAttachment = workspace:WaitForChild("Terrain"):WaitForChild("BatterySpawnAttachment")
-local depositAttachment = workspace:WaitForChild("Terrain"):WaitForChild("EggCrateSpawnAttachment")
+-- Define key locations and remotes
+local terrainFolder = workspace:WaitForChild("Terrain")
+local batteryAttachment = terrainFolder:WaitForChild("BatterySpawnAttachment")
+local depositAttachment = terrainFolder:WaitForChild("EggCrateSpawnAttachment")
 local grabRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("GrabBatteryRemote")
 local useRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("UseBatteryOnCrateRemote")
 
--- Helper: Check if player has battery (adjust this condition to match your game's setup!)
+-- Helper: Check if player has battery (adjust to match your game's setup!)
 local function hasBattery()
-    -- Example check: Look for battery in player's inventory or character
     return player.Backpack:FindFirstChild("Battery") or character:FindFirstChild("Battery")
+end
+
+-- Helper: Scan if battery is available at spawn point
+local function isBatteryAvailable()
+    -- Example scan: Check if battery object exists near the attachment (adjust object name/position check as needed)
+    local nearbyObjects = workspace:GetPartBoundsInBox(
+        batteryAttachment.CFrame, 
+        Vector3.new(3, 3, 3) -- Scan area size
+    )
+    for _, obj in ipairs(nearbyObjects) do
+        if obj.Name == "Battery" then -- Match your battery's in-game name
+            return true
+        end
+    end
+    return false
+end
+
+-- Helper: Scan if deposit point is active/available
+local function isDepositAvailable()
+    -- Example scan: Check if crate is present or deposit is ready (adjust condition to match your game)
+    local nearbyObjects = workspace:GetPartBoundsInBox(
+        depositAttachment.CFrame, 
+        Vector3.new(3, 3, 3) -- Scan area size
+    )
+    for _, obj in ipairs(nearbyObjects) do
+        if obj.Name == "EggCrate" and obj:GetAttribute("NeedsBattery") then -- Match your crate's setup
+            return true
+        end
+    end
+    return false
 end
 
 -- Helper: Teleport function
 local function teleportTo(target)
     humanoidRootPart.CFrame = target.CFrame + Vector3.new(0, 2, 0)
-    task.wait(0.5) -- Short wait after teleport
+    task.wait(0.5)
 end
 
 -- Main loop
 while true do
-    -- Phase 1: Keep teleporting to battery until grabbed
+    -- Phase 1: Look for available battery before teleporting
     while not hasBattery() do
-        teleportTo(batteryAttachment)
-        grabRemote:FireServer(batteryAttachment)
-        task.wait(1) -- Check again after 1 second
+        if isBatteryAvailable() then
+            print("Battery detected - teleporting to pick up!")
+            teleportTo(batteryAttachment)
+            grabRemote:FireServer(batteryAttachment)
+        else
+            print("No battery available yet - scanning again...")
+        end
+        task.wait(2) -- Scan every 2 seconds
     end
 
-    -- Phase 2: Keep teleporting to deposit until battery is used
+    -- Phase 2: Look for valid deposit before teleporting
     while hasBattery() do
-        teleportTo(depositAttachment)
-        useRemote:FireServer(depositAttachment)
-        task.wait(1) -- Check again after 1 second
+        if isDepositAvailable() then
+            print("Deposit point ready - teleporting to drop off!")
+            teleportTo(depositAttachment)
+            useRemote:FireServer(depositAttachment)
+        else
+            print("Deposit point not available yet - scanning again...")
+        end
+        task.wait(2) -- Scan every 2 seconds
     end
 
-    -- Optional: Short pause before restarting the cycle
-    task.wait(2)
+    -- Short pause before restarting cycle
+    task.wait(1)
 end
