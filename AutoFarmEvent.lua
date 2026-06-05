@@ -5,13 +5,21 @@ local Workspace = game:GetService("Workspace")
 
 local LocalPlayer = Players.LocalPlayer
 
--- Remotes (From gemini-code-1780661205300.lua.txt)
-local Remotes = ReplicatedStorage:WaitForChild("Remotes")
-local GrabBatteryRemote = Remotes:WaitForChild("GrabBatteryRemote")
-local UseBatteryOnCrateRemote = Remotes:WaitForChild("UseBatteryOnCrateRemote")
+-- Remotes (Safely waiting with a 5-second timeout to prevent infinite freezing) [cite: 1]
+local Remotes = ReplicatedStorage:WaitForChild("Remotes", 5)
+if not Remotes then warn("[IDIOT HUB ERROR] Could not find 'Remotes' folder in ReplicatedStorage!") return end
 
--- Targets
-local Terrain = Workspace:WaitForChild("Terrain")
+local GrabBatteryRemote = Remotes:WaitForChild("GrabBatteryRemote", 5) [cite: 1]
+local UseBatteryOnCrateRemote = Remotes:WaitForChild("UseBatteryOnCrateRemote", 5) [cite: 1]
+
+if not GrabBatteryRemote or not UseBatteryOnCrateRemote then
+    warn("[IDIOT HUB ERROR] Missing one or more RemoteEvents inside ReplicatedStorage.Remotes!")
+    return
+end
+
+-- Targets [cite: 1]
+local Terrain = Workspace:WaitForChild("Terrain", 5) [cite: 1]
+if not Terrain then warn("[IDIOT HUB ERROR] Could not find Terrain in Workspace!") return end
 
 --------------------------------------------------------------------
 -- UI INITIALIZATION ("IDIOT HUB")
@@ -25,7 +33,7 @@ screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
 local mainFrame = Instance.new("Frame")
 mainFrame.Size = UDim2.new(0, 320, 0, 240)
 mainFrame.Position = UDim2.new(0.5, -160, 0.5, -120)
-mainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25) -- Slightly darker theme
+mainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
 mainFrame.BorderSizePixel = 0
 mainFrame.Parent = screenGui
 
@@ -40,7 +48,7 @@ hubTitle.Position = UDim2.new(0, 12, 0, 5)
 hubTitle.BackgroundTransparency = 1
 hubTitle.Text = "IDIOT HUB"
 hubTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
-hubTitle.Font = Enum.Font.FredokaOne -- Clean, bold styling
+hubTitle.Font = Enum.Font.FredokaOne
 hubTitle.TextSize = 22
 hubTitle.TextXAlignment = Enum.TextXAlignment.Left
 hubTitle.Parent = mainFrame
@@ -53,7 +61,7 @@ divider.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
 divider.BorderSizePixel = 0
 divider.Parent = mainFrame
 
--- Section Label ("Main Tab" -> "Event Farm")
+-- Section Label
 local sectionLabel = Instance.new("TextLabel")
 sectionLabel.Size = UDim2.new(1, -20, 0, 25)
 sectionLabel.Position = UDim2.new(0, 12, 0, 50)
@@ -72,7 +80,7 @@ actionButton.Position = UDim2.new(0.5, -130, 0.5, 10)
 actionButton.Text = "Event Farm: OFF"
 actionButton.Font = Enum.Font.SourceSansBold
 actionButton.TextSize = 18
-actionButton.BackgroundColor3 = Color3.fromRGB(180, 50, 50) -- Red for inactive
+actionButton.BackgroundColor3 = Color3.fromRGB(180, 50, 50)
 actionButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 actionButton.Parent = mainFrame
 
@@ -83,60 +91,65 @@ buttonCorner.Parent = actionButton
 --------------------------------------------------------------------
 -- FARMING & TOGGLE LOGIC
 --------------------------------------------------------------------
-local isEnabled = false -- Tracks toggle state
+local isEnabled = false 
 
--- Helper function to safely teleport the character (From gemini-code-1780661205300.lua.txt)
+-- Helper function to safely teleport the character [cite: 1]
 local function teleportTo(attachment)
     local character = LocalPlayer.Character
-    local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+    local rootPart = character and character:FindFirstChild("HumanoidRootPart") [cite: 1]
     
-    if rootPart and attachment then
-        rootPart.CFrame = CFrame.new(attachment.WorldPosition + Vector3.new(0, 2, 0))[cite: 1]
-        task.wait(0.1) -- Sync delay[cite: 1]
+    if rootPart and attachment then [cite: 1]
+        rootPart.CFrame = CFrame.new(attachment.WorldPosition + Vector3.new(0, 2, 0)) [cite: 1]
+        task.wait(0.1) -- Sync delay [cite: 2]
         return true
     end
     return false
 end
 
--- Main Automation Loop
+-- Main Automation Loop [cite: 2]
 task.spawn(function()
+    print("[IDIOT HUB] Background farm loop successfully started.")
     while true do
-        -- Only attempt farming routes if the toggle state is true
         if isEnabled then
-            -- 1. Grab Battery[cite: 1]
-            local batteryAttachment = Terrain:FindFirstChild("BatterySpawnAttachment")[cite: 1]
-            if batteryAttachment and isEnabled then
-                print("[IDIOT HUB] Moving to Battery...")
-                if teleportTo(batteryAttachment) then[cite: 1]
-                    GrabBatteryRemote:FireServer(batteryAttachment)[cite: 1]
-                    task.wait(0.5) -- Cooldown[cite: 1]
+            -- 1. Grab Battery [cite: 2]
+            local batteryAttachment = Terrain:FindFirstChild("BatterySpawnAttachment") [cite: 2]
+            if batteryAttachment and isEnabled then [cite: 2]
+                print("[IDIOT HUB] Target Found! Moving to Battery...")
+                if teleportTo(batteryAttachment) then [cite: 2]
+                    GrabBatteryRemote:FireServer(batteryAttachment) [cite: 3]
+                    task.wait(0.5) -- Cooldown [cite: 3]
+                end
+            else
+                if not batteryAttachment then
+                    print("[IDIOT HUB] Waiting for 'BatterySpawnAttachment' to appear in Terrain...")
                 end
             end
 
-            -- 2. Deposit Battery into Crate[cite: 1]
-            local crateAttachment = Terrain:FindFirstChild("EggCrateSpawnAttachment")[cite: 1]
-            if crateAttachment and isEnabled then
-                print("[IDIOT HUB] Moving to Deposit Crate...")
-                if teleportTo(crateAttachment) then[cite: 1]
-                    UseBatteryOnCrateRemote:FireServer(crateAttachment)[cite: 1]
-                    task.wait(0.5) -- Cooldown[cite: 1]
+            -- 2. Deposit Battery into Crate [cite: 3]
+            local crateAttachment = Terrain:FindFirstChild("EggCrateSpawnAttachment") [cite: 3]
+            if crateAttachment and isEnabled then [cite: 3]
+                print("[IDIOT HUB] Target Found! Moving to Deposit Crate...")
+                if teleportTo(crateAttachment) then [cite: 3]
+                    UseBatteryOnCrateRemote:FireServer(crateAttachment) [cite: 4]
+                    task.wait(0.5) -- Cooldown [cite: 4]
                 end
             end
         end
 
-        task.wait(0.1) -- Performance throttle loop[cite: 1]
+        task.wait(0.5) -- Throttling loop slightly higher for diagnosis
     end
 end)
 
 -- Button Event Handler
 actionButton.MouseButton1Click:Connect(function()
     isEnabled = not isEnabled
+    print("[IDIOT HUB] Toggle clicked. Status is now:", isEnabled)
     
     if isEnabled then
-        actionButton.BackgroundColor3 = Color3.fromRGB(0, 150, 136) -- Teal for active
+        actionButton.BackgroundColor3 = Color3.fromRGB(0, 150, 136)
         actionButton.Text = "Event Farm: ON"
     else
-        actionButton.BackgroundColor3 = Color3.fromRGB(180, 50, 50) -- Red for inactive
+        actionButton.BackgroundColor3 = Color3.fromRGB(180, 50, 50)
         actionButton.Text = "Event Farm: OFF"
     end
 end)
