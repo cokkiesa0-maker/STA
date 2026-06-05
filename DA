@@ -4,16 +4,12 @@ local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 local Window = Rayfield:CreateWindow({
     Name = "Battery Automation Hub",
     LoadingTitle = "Loading Script...",
-    LoadingSubtitle = "by AI Assistant",
+    LoadingSubtitle = "Ready",
     ConfigurationSaving = {
-        Enabled = true,
-        FolderName = "BatteryFarmConfig",
-        FileName = "Config"
+        Enabled = false -- Disabled to ensure no bad config blocks the UI
     },
     Discord = {
-        Enabled = false,
-        Invite = "",
-        RememberJoins = true
+        Enabled = false
     },
     KeySystem = false
 })
@@ -38,8 +34,8 @@ local eggCrateAttachment = terrain:WaitForChild("EggCrateSpawnAttachment")
 
 local localPlayer = players.LocalPlayer
 
--- Create Tab
-local FarmTab = Window:CreateTab("Automation", 4483362458) -- Section Icon ID
+-- Create Tab (Icon changed to 0 / nil to prevent empty UI bugs)
+local FarmTab = Window:CreateTab("Automation", 0) 
 
 -- Section Header
 local FarmSection = FarmTab:CreateSection("Main Farm Functions")
@@ -53,14 +49,13 @@ local FarmToggle = FarmTab:CreateToggle({
         _G.AutoFarm = Value
         
         if Value then
-            -- Run the loop in a background thread
             task.spawn(function()
                 while _G.AutoFarm do
                     -- 1. Grab Battery
                     local grabArgs = { batteryAttachment }
                     grabBatteryRemote:FireServer(unpack(grabArgs))
                     
-                    task.wait(0.3) -- Small delay to prevent remote spam kicks
+                    task.wait(0.3)
                     
                     -- 2. Use Battery
                     local useArgs = { eggCrateAttachment }
@@ -87,12 +82,11 @@ local TeleportToggle = FarmTab:CreateToggle({
                     local character = localPlayer.Character or localPlayer.CharacterAdded:Wait()
                     local hrp = character:WaitForChild("HumanoidRootPart", 5)
                     
-                    -- Use the attachment's world position to teleport safely
                     if hrp and eggCrateAttachment then
                         hrp.CFrame = CFrame.new(eggCrateAttachment.WorldPosition + Vector3.new(0, 3, 0))
                     end
                     
-                    task.wait(1) -- Teleports every second to keep you there if knocked away
+                    task.wait(1)
                 end
             end)
         end
@@ -110,15 +104,6 @@ local TeleportButton = FarmTab:CreateButton({
         local hrp = character:FindFirstChild("HumanoidRootPart")
         if hrp and eggCrateAttachment then
             hrp.CFrame = CFrame.new(eggCrateAttachment.WorldPosition + Vector3.new(0, 3, 0))
-            Rayfield:Notify({
-                Name = "Teleport Success",
-                Content = "Teleported to Egg Crate Attachment!",
-                Duration = 2,
-                Image = 4483362458,
-            })
         end
     end,
 })
-
--- Load the Configuration automatically if saved
-Rayfield:LoadConfiguration()
