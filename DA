@@ -1,35 +1,33 @@
--- Get player and humanoid root part
+-- Get core services and player references
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
 
--- Define target attachments
+-- Define key objects
 local batteryAttachment = workspace:WaitForChild("Terrain"):WaitForChild("BatterySpawnAttachment")
-local crateAttachment = workspace:WaitForChild("Terrain"):WaitForChild("EggCrateSpawnAttachment")
-
--- Define remotes
+local crateAttachment = workspace:WaitForChild("Terrain"):WaitForChild("EggCrateSpawnAttachment") -- This is the Battery Deposit point
 local grabRemote = game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("GrabBatteryRemote")
 local useRemote = game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("UseBatteryOnCrateRemote")
 
--- Function to teleport and wait for character stability
+-- Teleport helper function
 local function teleportTo(target)
-    humanoidRootPart.CFrame = target.CFrame + Vector3.new(0, 2, 0) -- Add height to avoid ground issues
-    task.wait(1) -- Wait for character to settle
+    humanoidRootPart.CFrame = target.CFrame + Vector3.new(0, 2, 0) -- Prevent getting stuck in ground
+    task.wait(1) -- Let character stabilize after teleport
 end
 
--- Auto sequence
+-- Main auto sequence loop
 while true do
-    -- Teleport to battery and grab
+    -- Step 1: Teleport to battery and grab it
     teleportTo(batteryAttachment)
     grabRemote:FireServer(batteryAttachment)
-    task.wait(2) -- Wait for grab action to process
+    task.wait(2) -- Wait for grab to complete server-side
 
-    -- Teleport to crate and deposit
+    -- Step 2: Immediately teleport to deposit point and use battery
     teleportTo(crateAttachment)
     useRemote:FireServer(crateAttachment)
-    task.wait(3) -- Wait for deposit action to process
+    task.wait(3) -- Wait for deposit to process
 
-    -- Wait before next cycle (adjust time as needed)
-    task.wait(5)
+    -- Optional: Wait before restarting the cycle
+    task.wait(4)
 end
