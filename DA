@@ -2,6 +2,7 @@
 local INTERACT_DELAY = 0.8 
 local DETECT_RADIUS = 15 
 local POST_DEPOSIT_WAIT = 3 -- Strict 3-second freeze lock
+local MOUNT_KEY = Enum.KeyCode.R -- Standard mount/ride key for Dragon Adventures
 
 -- [[ SERVICES ]] --
 local Players = game:GetService("Players")
@@ -22,9 +23,43 @@ LocalPlayer.CharacterAdded:Connect(function(newCharacter)
     CURRENT_STATE = "HUNTING" 
 end)
 
+-- [[ DRAGON MOUNT CHECKER ]] --
+local function ensureMounted()
+    if not Humanoid then return end
+    
+    -- In Roblox games like Dragon Adventures, being mounted changes your SeatState 
+    -- or puts your character inside a specific platform/running state.
+    if Humanoid.FloorMaterial == Enum.Material.Air and Humanoid:GetState() == Enum.HumanoidStateType.Seated then
+        return -- Already riding/seated on the dragon
+    end
+    
+    -- Alternate check: if the game welds your HumanoidRootPart to a dragon model
+    local isWeldedToDragon = false
+    for _, child in ipairs(HumanoidRootPart:GetChildren()) do
+        if child:IsA("Weld") or child:IsA("Snap") or child:IsA("ManualWeld") then
+            if child.Part1 and (string.find(string.lower(child.Part1.Name), "dragon") or string.find(string.lower(child.Part1.Name), "saddle")) then
+                isWeldedToDragon = true
+                break
+            end
+        end
+    end
+    
+    if isWeldedToDragon then return end
+
+    -- Force Mount if validation checks fail
+    print("[Mount Manager] Character is on foot! Forcing dragon mount...")
+    VirtualInputManager:SendKeyEvent(true, MOUNT_KEY, false, game)
+    task.wait(0.1)
+    VirtualInputManager:SendKeyEvent(false, MOUNT_KEY, false, game)
+    task.wait(1.5) -- Give the game ample time to complete the mounting animation
+end
+
 -- [[ ANTI-RUBBERBAND TELEPORT ]] --
 local function safeTeleport(targetCFrame)
     if not HumanoidRootPart or not Humanoid then return end
+    
+    -- Ensure you are on your dragon before moving across the map
+    ensureMounted()
     
     -- Force-kill character velocity and physics to prevent snap-backs
     HumanoidRootPart.Anchored = false 
@@ -33,7 +68,7 @@ local function safeTeleport(targetCFrame)
     HumanoidRootPart.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
     
     -- Execute instant CFrame snap slightly above target
-    HumanoidRootPart.CFrame = targetCFrame * CFrame.new(0, 2, 0)
+    HumanoidRootPart.CFrame = targetCFrame * CFrame.new(0, 4, 0) -- Raised slightly higher for dragon clearance
     
     -- Post-teleport clamp to firmly establish new coordinates server-side
     task.wait(0.1)
@@ -91,7 +126,7 @@ end
 
 -- [[ CORE REPEATING LOOP ]] --
 local function run()
-    print("[Script Active] Operating on instant Teleport profiles. Anti-rubberband enabled.")
+    print("[Script Active] Auto-Ride Dragon validation enabled with teleport tracking.")
     
     while true do
         local batteries, deposits = scanWorkspace()
@@ -100,7 +135,7 @@ local function run()
         if CURRENT_STATE == "HUNTING" then
             if #batteries > 0 then
                 local targetBattery = batteries[1]
-                print("State: HUNTING -> Teleporting to Battery...")
+                print("State: HUNTING -> Verifying mount and teleporting to Battery...")
                 
                 safeTeleport(targetBattery.CFrame)
                 interact()
@@ -115,13 +150,13 @@ local function run()
         elseif CURRENT_STATE == "DEPOSITING" then
             if #deposits > 0 then
                 local targetDeposit = deposits[math.random(1, #deposits)]
-                print("State: DEPOSITING -> Teleporting to Station...")
+                print("State: DEPOSITING -> Verifying mount and teleporting to Station...")
                 
                 safeTeleport(targetDeposit.CFrame)
                 interact()
                 
                 -- [[ POST-DEPOSIT ANCHOR LOCK ]] --
-                print("Drop-off finished! Anchoring character for exactly " .. POST_DEPOSIT_WAIT .. " seconds.")
+                print("Drop-off finished! Anchoring dragon and character for " .. POST_DEPOSIT_WAIT .. " seconds.")
                 HumanoidRootPart.Anchored = true
                 task.wait(POST_DEPOSIT_WAIT)
                 HumanoidRootPart.Anchored = false
