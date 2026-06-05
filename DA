@@ -1,94 +1,55 @@
--- AUTO BATTERY COLLECTION & DELIVERY SCRIPT
--- MUST BE A LOCALSCRIPT IN STARTERPLAYERSCRIPTS OR STARTERPACK
-
 -- Services
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 
--- Player/Character Setup
+-- Local player and character setup
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
-local humanoid = character:WaitForChild("Humanoid")
 
--- Core Objects (matches YOUR original paths exactly)
-local batterySpawn = Workspace:WaitForChild("Terrain"):WaitForChild("BatterySpawnAttachment")
-local crateSpawn = Workspace:WaitForChild("Terrain"):WaitForChild("EggCrateSpawnAttachment")
-local dropsFolder = Workspace:FindFirstChild("Drops") or Workspace:WaitForChild("Drops") -- Creates folder if missing
-
--- Remotes (matches YOUR original calls)
+-- Remote references
 local grabRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("GrabBatteryRemote")
 local useRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("UseBatteryOnCrateRemote")
 local dropsRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("BatteryCrateDropsRemote")
 
--- Track last location to avoid duplicate teleports
-local lastTarget = nil
+-- Target attachments
+local batterySpawn = Workspace:WaitForChild("Terrain"):WaitForChild("BatterySpawnAttachment")
+local crateSpawn = Workspace:WaitForChild("Terrain"):WaitForChild("EggCrateSpawnAttachment")
 
--- Simple Teleport Function
+-- Function to teleport to a target
 local function teleportTo(target)
-    if not humanoid or humanoid.Health <= 0 then return end
-    -- Only teleport if not already there
-    local distance = (humanoidRootPart.Position - target.Position).Magnitude
-    if target ~= lastTarget and distance > 3 then
-        humanoidRootPart.CFrame = target.CFrame + Vector3.new(0, 2, 0)
-        lastTarget = target
-        task.wait(1) -- Let character settle
+    if humanoidRootPart and target then
+        humanoidRootPart.CFrame = target.WorldCFrame + Vector3.new(0, 2, 0) -- Add height to avoid clipping
+        task.wait(1) -- Wait for character to stabilize
     end
 end
 
--- Check if player has battery (looks for tool in character/backpack)
-local function hasBattery()
-    local batteryTool = character:FindFirstChild("Battery") or player.Backpack:FindFirstChild("Battery")
-    return batteryTool ~= nil
-end
-
--- Auto Collect Drops
+-- Function to collect drops (looks for nearby collectible parts)
 local function collectDrops()
-    if not dropsFolder then return end
-    for _, drop in ipairs(dropsFolder:GetChildren()) do
-        teleportTo(drop)
-        -- Touch to collect (works for most drop systems)
-        local dropPart = drop:IsA("BasePart") and drop or drop:FindFirstChildWhichIsA("BasePart")
-        if dropPart then
-            firetouchinterest(humanoidRootPart, dropPart, 0)
-            firetouchinterest(humanoidRootPart, dropPart, 1)
+    local collectibles = Workspace:GetDescendants()
+    for _, part in ipairs(collectibles) do
+        -- Adjust the name/check below to match your drop instances
+        if part:IsA("BasePart") and part.Name == "BatteryDrop" then
+            humanoidRootPart.CFrame = part.WorldCFrame + Vector3.new(0, 1, 0)
+            task.wait(0.5)
+            -- If drops require a remote to collect, add the FireServer call here
         end
-        task.wait(0.5)
-        drop:Destroy() -- Clean up drop
     end
 end
 
--- Handle respawns
-player.CharacterAdded:Connect(function(newChar)
-    character = newChar
-    humanoidRootPart = character:WaitForChild("HumanoidRootPart")
-    humanoid = character:WaitForChild("Humanoid")
-    lastTarget = nil -- Reset teleport tracking
-    task.wait(2)
-end)
-
--- MAIN AUTOMATION LOOP
-while true do
-    task.wait(2) -- Small delay between cycles
-
-    -- Step 1: Teleport to battery & collect (ONLY if no battery)
-    if not hasBattery() then
-        teleportTo(batterySpawn)
-        grabRemote:FireServer(batterySpawn) -- Exact call from your original code
-        -- Wait until battery is collected
-        while not hasBattery() do task.wait(0.3) end
-    end
-
-    -- Step 2: Teleport to crate & use battery
-    if hasBattery() then
-        teleportTo(crateSpawn)
-        useRemote:FireServer(crateSpawn) -- Exact call from your original code
-        task.wait(1)
-
-        -- Step 3: Trigger drops & collect them
-        dropsRemote:FireServer(Instance.new("Attachment")) -- Exact call from your original code
-        task.wait(1) -- Wait for drops to spawn
-        collectDrops()
-    end
+-- Main automation loop
+while task.wait(5) do -- Repeat every 5 seconds (adjust as needed)
+    -- Teleport to battery and collect
+    teleportTo(batterySpawn)
+    grabRemote:FireServer(batterySpawn)
+    
+    -- Teleport to crate and use battery
+    teleportTo(crateSpawn)
+    useRemote:FireServer(crateSpawn)
+    
+    -- Trigger drop spawn and collect them
+    dropsRemote:FireServer(Instance.new("Attachment"))
+    task.wait(1) -- Wait for drops to spawn
+    collectDrops()
 end
