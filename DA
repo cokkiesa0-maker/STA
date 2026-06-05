@@ -3,53 +3,64 @@ local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 
--- Local player and character setup
+-- Local player setup
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
+local humanoid = character:WaitForChild("Humanoid")
 
--- Remote references
+-- Target references
+local batterySpawn = Workspace:WaitForChild("Terrain"):WaitForChild("BatterySpawnAttachment")
+local crateDeposit = Workspace:WaitForChild("Terrain"):WaitForChild("EggCrateSpawnAttachment") -- This is our deposit lock point
+local lockPosition = crateDeposit.WorldCFrame + Vector3.new(0, 1.5, 0) -- Lock position with height offset
+
+-- Remotes
 local grabRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("GrabBatteryRemote")
 local useRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("UseBatteryOnCrateRemote")
 local dropsRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("BatteryCrateDropsRemote")
 
--- Target attachments
-local batterySpawn = Workspace:WaitForChild("Terrain"):WaitForChild("BatterySpawnAttachment")
-local crateSpawn = Workspace:WaitForChild("Terrain"):WaitForChild("EggCrateSpawnAttachment")
-
--- Function to teleport to a target
-local function teleportTo(target)
-    if humanoidRootPart and target then
-        humanoidRootPart.CFrame = target.WorldCFrame + Vector3.new(0, 2, 0) -- Add height to avoid clipping
-        task.wait(1) -- Wait for character to stabilize
-    end
-end
-
--- Function to collect drops (looks for nearby collectible parts)
-local function collectDrops()
-    local collectibles = Workspace:GetDescendants()
-    for _, part in ipairs(collectibles) do
-        -- Adjust the name/check below to match your drop instances
-        if part:IsA("BasePart") and part.Name == "BatteryDrop" then
-            humanoidRootPart.CFrame = part.WorldCFrame + Vector3.new(0, 1, 0)
-            task.wait(0.5)
-            -- If drops require a remote to collect, add the FireServer call here
+-- Function to lock position to deposit
+local function maintainDepositLock()
+    while true do
+        task.wait(0.1) -- Check position frequently
+        if humanoidRootPart then
+            -- Keep player at the lock position
+            humanoidRootPart.CFrame = lockPosition
+            -- Optional: Prevent movement input
+            humanoid.WalkSpeed = 0
         end
     end
 end
 
--- Main automation loop
-while task.wait(5) do -- Repeat every 5 seconds (adjust as needed)
-    -- Teleport to battery and collect
-    teleportTo(batterySpawn)
-    grabRemote:FireServer(batterySpawn)
-    
-    -- Teleport to crate and use battery
-    teleportTo(crateSpawn)
-    useRemote:FireServer(crateSpawn)
-    
-    -- Trigger drop spawn and collect them
+-- Function to collect drops near deposit
+local function collectDrops()
+    task.wait(1)
+    for _, part in ipairs(Workspace:GetDescendants()) do
+        if part:IsA("BasePart") and part.Name == "BatteryDrop" then
+            humanoidRootPart.CFrame = part.WorldCFrame + Vector3.new(0, 1, 0)
+            task.wait(0.5)
+        end
+    end
+end
+
+-- Main flow: Collect battery, then lock to deposit
+teleportTo(batterySpawn)
+grabRemote:FireServer(batterySpawn)
+
+-- Move to deposit and lock position permanently
+humanoidRootPart.CFrame = lockPosition
+task.spawn(maintainDepositLock) -- Run lock in background
+
+-- Repeat interaction and collection while locked
+while task.wait(3) do
+    useRemote:FireServer(crateDeposit)
     dropsRemote:FireServer(Instance.new("Attachment"))
-    task.wait(1) -- Wait for drops to spawn
     collectDrops()
+end
+
+-- Helper teleport function
+function teleportTo(target)
+    humanoid.WalkSpeed = 16 -- Temporarily allow movement
+    humanoidRootPart.CFrame = target.WorldCFrame + Vector3.new(0, 2, 0)
+    task.wait(1)
 end
