@@ -1,45 +1,35 @@
--- [[ Redz UI Library Setup ]]
-local RedzLib = loadstring(game:HttpGet("https://raw.githubusercontent.com/REDZ7/Extremum/main/JuiceLib.lua"))()
-
-local Window = RedzLib:CreateWindow({
-    Name = "Mobile Automation",
-    SubName = "by Gemini",
-    Discord = ""
-})
-
--- [[ Services & Remotes ]]
+-- [[ Services ]]
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
 local LocalPlayer = Players.LocalPlayer
-local Remotes = ReplicatedStorage:WaitForChild("Remotes")
+local Remotes = ReplicatedStorage:WaitForChild("Remotes") [cite: 1]
 local GrabBatteryRemote = Remotes:WaitForChild("GrabBatteryRemote") [cite: 1]
 local UseBatteryOnCrateRemote = Remotes:WaitForChild("UseBatteryOnCrateRemote") [cite: 1]
 local Terrain = Workspace:WaitForChild("Terrain") [cite: 1]
 
--- [[ Global State ]]
+-- [[ Global Controls ]]
 getgenv().EventFarmActive = false
 
--- [[ Safe Teleportation Mechanics ]]
+-- [[ Teleport Logic ]]
 local function teleportTo(attachment)
     local character = LocalPlayer.Character
     local rootPart = character and character:FindFirstChild("HumanoidRootPart") [cite: 1]
     
     if rootPart and attachment then [cite: 1]
-        -- Offset to prevent mobile physics clipping or rubberbanding
         rootPart.CFrame = CFrame.new(attachment.WorldPosition + Vector3.new(0, 2, 0)) [cite: 1]
         task.wait(0.1) [cite: 2]
-        return true
+        return true [cite: 2]
     end
     return false [cite: 2]
 end
 
--- [[ Dedicated Farming Thread ]]
+-- [[ Automation Worker ]]
 task.spawn(function()
     while true do
         if getgenv().EventFarmActive then
-            -- Phase 1: Retrieve Battery
+            -- 1. Grab Battery
             local batteryAttachment = Terrain:FindFirstChild("BatterySpawnAttachment") [cite: 2]
             if batteryAttachment and getgenv().EventFarmActive then
                 if teleportTo(batteryAttachment) then [cite: 2]
@@ -48,7 +38,7 @@ task.spawn(function()
                 end
             end
 
-            -- Phase 2: Deposit Battery
+            -- 2. Deposit Battery
             local crateAttachment = Terrain:FindFirstChild("EggCrateSpawnAttachment") [cite: 3]
             if crateAttachment and getgenv().EventFarmActive then
                 if teleportTo(crateAttachment) then [cite: 4]
@@ -57,19 +47,21 @@ task.spawn(function()
                 end
             end
         end
-        task.wait(0.2) -- Low-overhead idle throttle for mobile performance [cite: 4]
+        task.wait(0.2)
     end
 end)
 
--- [[ UI Elements Construction ]]
-local MainTab = Window:CreateTab("Main")
+-- [[ UI Setup ]]
+local VenyxLib = loadstring(game:HttpGet("https://raw.githubusercontent.com/Stefanuk12/Venyx-UI-Library/main/source.lua"))()
+local UI = VenyxLib.new("Mobile Interface", 5013109572)
 
-MainTab:CreateSection("Event Farm")
+-- Main Tab & Event Farm Section
+local MainTab = UI:addPage("Main", 5012544693)
+local EventFarmSection = MainTab:addSection("Event Farm")
 
-MainTab:CreateToggle({
-    Name = "Auto Farm Batteries",
-    Default = false,
-    Callback = function(Value)
-        getgenv().EventFarmActive = Value
-    end
-})
+EventFarmSection:addToggle("Auto Farm Batteries", false, function(Value)
+    getgenv().EventFarmActive = Value
+end)
+
+-- Select first page by default
+UI:SelectPage(MainTab, true)
