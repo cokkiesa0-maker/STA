@@ -19,13 +19,16 @@ end
 -- ==========================================
 local Rayfield
 local rayFieldLoaded = false
+local Window = nil
 
 local success, err = pcall(function()
     debugLog("Attempting to load Rayfield UI Library...")
     
     local rayFieldSuccess, rayFieldErr = pcall(function()
+        debugLog("Fetching Rayfield from URL...")
         local response = game:HttpGet('https://sirius.menu/rayfield')
         if response and response ~= "" then
+            debugLog("Rayfield response received, loading...")
             Rayfield = loadstring(response)()
             rayFieldLoaded = true
             debugLog("✅ Rayfield loaded successfully")
@@ -45,25 +48,38 @@ local success, err = pcall(function()
         debugLog("Creating fallback UI system...")
         Rayfield = {
             CreateWindow = function(self, config)
+                debugLog("Fallback: Creating window")
                 return {
                     CreateTab = function(self, name, icon)
+                        debugLog("Fallback: Creating tab: " .. tostring(name))
                         return {
                             CreateSection = function(self, name)
-                                print("[SECTION] " .. name)
+                                print("[SECTION] " .. tostring(name))
+                                return self
                             end,
                             CreateToggle = function(self, config)
-                                print("[TOGGLE] " .. config.Name)
+                                local toggleName = (config and config.Name) or "Unknown Toggle"
+                                print("[TOGGLE] " .. tostring(toggleName))
+                                return self
                             end,
                             CreateSlider = function(self, config)
-                                print("[SLIDER] " .. config.Name)
+                                local sliderName = (config and config.Name) or "Unknown Slider"
+                                print("[SLIDER] " .. tostring(sliderName))
+                                return self
                             end,
                             CreateButton = function(self, config)
-                                print("[BUTTON] " .. config.Name)
+                                local buttonName = (config and config.Name) or "Unknown Button"
+                                print("[BUTTON] " .. tostring(buttonName))
+                                return self
                             end,
                             CreateLabel = function(self, text)
-                                print("[LABEL] " .. text)
+                                print("[LABEL] " .. tostring(text))
+                                return self
                             end
                         }
+                    end,
+                    Destroy = function(self)
+                        debugLog("Fallback: Window destroyed")
                     end
                 }
             end
@@ -71,7 +87,13 @@ local success, err = pcall(function()
     end
     
     -- Window Configuration
-    local Window = Rayfield:CreateWindow({
+    if not Rayfield then
+        errorLog("FATAL: Rayfield is still nil after initialization")
+        return
+    end
+    
+    debugLog("Creating window...")
+    Window = Rayfield:CreateWindow({
         Name = "Battery Automation Hub",
         Icon = 0,
         LoadingTitle = "Loading Automation...",
@@ -91,6 +113,11 @@ local success, err = pcall(function()
         },
         KeySystem = false
     })
+    
+    if not Window then
+        errorLog("FATAL: Window creation failed")
+        return
+    end
     
     debugLog("Window created successfully")
     
@@ -127,7 +154,12 @@ local success, err = pcall(function()
     local remotes = replicatedStorage:WaitForChild("Remotes", 5)
     if not remotes then
         errorLog("Remotes folder not found in ReplicatedStorage after 5 seconds")
-        errorLog("Available in ReplicatedStorage: " .. table.concat(replicatedStorage:GetChildren(), ", "))
+        local children = replicatedStorage:GetChildren()
+        local childNames = {}
+        for _, child in ipairs(children) do
+            table.insert(childNames, child.Name)
+        end
+        errorLog("Available in ReplicatedStorage: " .. table.concat(childNames, ", "))
         remotes = nil
     else
         debugLog("✅ Remotes folder found")
@@ -144,7 +176,11 @@ local success, err = pcall(function()
         if useBatteryRemote then debugLog("✅ UseBatteryOnCrateRemote found") else errorLog("UseBatteryOnCrateRemote not found") end
         
         if not grabBatteryRemote or not useBatteryRemote then
-            errorLog("Available remotes: " .. table.concat(remotes:GetChildren(), ", "))
+            local remoteNames = {}
+            for _, remote in ipairs(remotes:GetChildren()) do
+                table.insert(remoteNames, remote.Name)
+            end
+            errorLog("Available remotes: " .. table.concat(remoteNames, ", "))
         end
     end
     
@@ -172,7 +208,11 @@ local success, err = pcall(function()
         if eggCrateAttachment then debugLog("✅ EggCrateSpawnAttachment found") else errorLog("EggCrateSpawnAttachment not found") end
         
         if not batteryAttachment or not eggCrateAttachment then
-            errorLog("Available in Terrain: " .. table.concat(terrain:GetChildren(), ", "))
+            local terrainChildren = {}
+            for _, child in ipairs(terrain:GetChildren()) do
+                table.insert(terrainChildren, child.Name)
+            end
+            errorLog("Available in Terrain: " .. table.concat(terrainChildren, ", "))
         end
     end
     
@@ -198,21 +238,21 @@ local success, err = pcall(function()
                 task.spawn(function()
                     while _G.AutoFarm do
                         if grabBatteryRemote and batteryAttachment then
-                            local success, err = pcall(function()
+                            local farmSuccess, farmErr = pcall(function()
                                 grabBatteryRemote:FireServer(batteryAttachment)
                             end)
-                            if not success then
-                                errorLog("Error grabbing battery: " .. tostring(err))
+                            if not farmSuccess then
+                                errorLog("Error grabbing battery: " .. tostring(farmErr))
                             end
                         end
                         task.wait(_G.FarmDelay)
                         
                         if useBatteryRemote and eggCrateAttachment then
-                            local success, err = pcall(function()
+                            local useSuccess, useErr = pcall(function()
                                 useBatteryRemote:FireServer(eggCrateAttachment)
                             end)
-                            if not success then
-                                errorLog("Error using battery: " .. tostring(err))
+                            if not useSuccess then
+                                errorLog("Error using battery: " .. tostring(useErr))
                             end
                         end
                         task.wait(_G.FarmDelay)
@@ -259,11 +299,11 @@ local success, err = pcall(function()
                         local character = localPlayer.Character
                         local hrp = character and character:FindFirstChild("HumanoidRootPart")
                         if hrp and eggCrateAttachment then
-                            local success, err = pcall(function()
+                            local tpSuccess, tpErr = pcall(function()
                                 hrp.CFrame = CFrame.new(eggCrateAttachment.WorldPosition + Vector3.new(0, 3, 0))
                             end)
-                            if not success then
-                                errorLog("Teleport error: " .. tostring(err))
+                            if not tpSuccess then
+                                errorLog("Teleport error: " .. tostring(tpErr))
                             end
                         end
                         task.wait(1)
@@ -281,12 +321,12 @@ local success, err = pcall(function()
             local character = localPlayer.Character
             local hrp = character and character:FindFirstChild("HumanoidRootPart")
             if hrp and eggCrateAttachment then
-                local success, err = pcall(function()
+                local crateTPSuccess, crateTpErr = pcall(function()
                     hrp.CFrame = CFrame.new(eggCrateAttachment.WorldPosition + Vector3.new(0, 3, 0))
                     debugLog("Teleported to crate")
                 end)
-                if not success then
-                    errorLog("Teleport failed: " .. tostring(err))
+                if not crateTPSuccess then
+                    errorLog("Teleport failed: " .. tostring(crateTpErr))
                 end
             else
                 errorLog("Cannot teleport: HRP or Crate Attachment missing")
@@ -300,12 +340,12 @@ local success, err = pcall(function()
             local character = localPlayer.Character
             local hrp = character and character:FindFirstChild("HumanoidRootPart")
             if hrp and batteryAttachment then
-                local success, err = pcall(function()
+                local batteryTPSuccess, batteryTpErr = pcall(function()
                     hrp.CFrame = CFrame.new(batteryAttachment.WorldPosition + Vector3.new(0, 3, 0))
                     debugLog("Teleported to battery spawn")
                 end)
-                if not success then
-                    errorLog("Teleport failed: " .. tostring(err))
+                if not batteryTPSuccess then
+                    errorLog("Teleport failed: " .. tostring(batteryTpErr))
                 end
             else
                 errorLog("Cannot teleport: HRP or Battery Attachment missing")
