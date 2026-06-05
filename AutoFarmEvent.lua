@@ -1,6 +1,5 @@
 -- Auto Farm Event Script
 -- Automatically teleports to batteries, grabs them, rides dragon to egg crates, and uses batteries to farm event rewards
--- Click the toggle button in the top-right corner to enable/disable farming
 
 print("=== AUTO FARM EVENT STARTED ===")
 
@@ -38,49 +37,6 @@ local success, err = pcall(function()
     
     local iteration = 0
     local dragonMounted = false
-    local farmingEnabled = true -- Toggle state
-    
-    -- Create GUI Toggle Button
-    local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
-    local screenGui = Instance.new("ScreenGui")
-    screenGui.Name = "FarmToggleGui"
-    screenGui.ResetOnSpawn = false
-    screenGui.Parent = PlayerGui
-    
-    local toggleButton = Instance.new("TextButton")
-    toggleButton.Name = "ToggleButton"
-    toggleButton.Size = UDim2.new(0, 100, 0, 50)
-    toggleButton.Position = UDim2.new(1, -120, 0, 20)
-    toggleButton.BackgroundColor3 = Color3.fromRGB(0, 200, 0) -- Green for enabled
-    toggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-    toggleButton.TextSize = 14
-    toggleButton.Font = Enum.Font.GothamBold
-    toggleButton.Text = "🟢 ON"
-    toggleButton.BorderSizePixel = 0
-    toggleButton.Parent = screenGui
-    
-    local UICorner = Instance.new("UICorner")
-    UICorner.CornerRadius = UDim.new(0, 8)
-    UICorner.Parent = toggleButton
-    
-    -- Toggle function
-    local function toggleFarming()
-        farmingEnabled = not farmingEnabled
-        if farmingEnabled then
-            print("🟢 FARMING ENABLED")
-            toggleButton.BackgroundColor3 = Color3.fromRGB(0, 200, 0) -- Green
-            toggleButton.Text = "🟢 ON"
-        else
-            print("🔴 FARMING DISABLED")
-            toggleButton.BackgroundColor3 = Color3.fromRGB(200, 0, 0) -- Red
-            toggleButton.Text = "🔴 OFF"
-        end
-    end
-    
-    -- Button click handler
-    toggleButton.MouseButton1Click:Connect(function()
-        toggleFarming()
-    end)
     
     -- Helper function to find and mount dragon
     local function mountDragon()
@@ -148,15 +104,8 @@ local success, err = pcall(function()
     end
     
     print("Starting farm loop...")
-    print("Click the button in the top-right corner to toggle farming on/off")
     
     while iteration < MAX_ITERATIONS do
-        -- Check if farming is enabled
-        if not farmingEnabled then
-            wait(0.5) -- Check again every 0.5 seconds while disabled
-            goto continue
-        end
-        
         iteration = iteration + 1
         print("--- Iteration " .. iteration .. " ---")
         
@@ -255,8 +204,6 @@ local success, err = pcall(function()
         -- Wait before next iteration
         print("Waiting for next cycle...")
         wait(LOOP_DELAY)
-        
-        ::continue::
     end
     
     print("=== AUTO FARM EVENT COMPLETED ===")
