@@ -5,80 +5,94 @@ local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
 
--- Define key locations and remotes
-local terrainFolder = workspace:WaitForChild("Terrain")
-local batteryAttachment = terrainFolder:WaitForChild("BatterySpawnAttachment")
-local depositAttachment = terrainFolder:WaitForChild("EggCrateSpawnAttachment")
-local grabRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("GrabBatteryRemote")
-local useRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("UseBatteryOnCrateRemote")
+-- Store confirmed locations (initially nil until detected)
+local confirmedBatterySpawn = nil
+local confirmedDepositLocation = nil
 
--- Helper: Check if player has battery (adjust to match your game's setup!)
+-- Helper: Check if player has battery (adjust to match your game!)
 local function hasBattery()
     return player.Backpack:FindFirstChild("Battery") or character:FindFirstChild("Battery")
 end
 
--- Helper: Scan if battery is available at spawn point
-local function isBatteryAvailable()
-    -- Example scan: Check if battery object exists near the attachment (adjust object name/position check as needed)
-    local nearbyObjects = workspace:GetPartBoundsInBox(
-        batteryAttachment.CFrame, 
-        Vector3.new(3, 3, 3) -- Scan area size
-    )
-    for _, obj in ipairs(nearbyObjects) do
-        if obj.Name == "Battery" then -- Match your battery's in-game name
-            return true
+-- Helper: Scan and confirm battery spawn location + availability
+local function findAndValidateBatterySpawn()
+    -- Look for the spawn area first, then check for battery presence
+    local terrainFolder = workspace:FindFirstChild("Terrain")
+    if not terrainFolder then return nil end
+
+    local attachment = terrainFolder:FindFirstChild("BatterySpawnAttachment")
+    if not attachment then return nil end
+
+    -- Scan for actual battery at the attachment's location
+    local scanArea = attachment.CFrame
+    local nearbyBatteries = workspace:GetPartBoundsInBox(scanArea, Vector3.new(4, 4, 4))
+    for _, obj in ipairs(nearbyBatteries) do
+        if obj.Name == "Battery" then
+            return attachment.CFrame -- Return exact confirmed position
         end
     end
-    return false
+    return nil
 end
 
--- Helper: Scan if deposit point is active/available
-local function isDepositAvailable()
-    -- Example scan: Check if crate is present or deposit is ready (adjust condition to match your game)
-    local nearbyObjects = workspace:GetPartBoundsInBox(
-        depositAttachment.CFrame, 
-        Vector3.new(3, 3, 3) -- Scan area size
-    )
-    for _, obj in ipairs(nearbyObjects) do
-        if obj.Name == "EggCrate" and obj:GetAttribute("NeedsBattery") then -- Match your crate's setup
-            return true
+-- Helper: Scan and confirm battery deposit location + readiness
+local function findAndValidateDeposit()
+    -- First locate the deposit structure, then confirm it's ready
+    local terrainFolder = workspace:FindFirstChild("Terrain")
+    if not terrainFolder then return nil end
+
+    local attachment = terrainFolder:FindFirstChild("EggCrateSpawnAttachment")
+    if not attachment then return nil end
+
+    -- Scan for valid deposit target and check if it needs a battery
+    local scanArea = attachment.CFrame
+    local nearbyCrates = workspace:GetPartBoundsInBox(scanArea, Vector3.new(4, 4, 4))
+    for _, obj in ipairs(nearbyCrates) do
+        if obj.Name == "EggCrate" and obj:GetAttribute("NeedsBattery") == true then
+            return attachment.CFrame -- Return exact confirmed position
         end
     end
-    return false
+    return nil
 end
 
--- Helper: Teleport function
-local function teleportTo(target)
-    humanoidRootPart.CFrame = target.CFrame + Vector3.new(0, 2, 0)
-    task.wait(0.5)
+-- Helper: Teleport only to confirmed valid locations
+local function teleportTo(confirmedLocation)
+    if confirmedLocation then
+        humanoidRootPart.CFrame = confirmedLocation + Vector3.new(0, 2, 0)
+        print("Teleported to confirmed location!")
+        task.wait(0.75)
+    else
+        print("No valid location to teleport to yet...")
+    end
 end
 
--- Main loop
+-- Main loop: First detect locations, then act
 while true do
-    -- Phase 1: Look for available battery before teleporting
+    -- Step 1: Always update confirmed locations first
+    confirmedBatterySpawn = findAndValidateBatterySpawn()
+    confirmedDepositLocation = findAndValidateDeposit()
+
+    -- Step 2: Handle battery collection if no battery is held
     while not hasBattery() do
-        if isBatteryAvailable() then
-            print("Battery detected - teleporting to pick up!")
-            teleportTo(batteryAttachment)
-            grabRemote:FireServer(batteryAttachment)
-        else
-            print("No battery available yet - scanning again...")
+        if confirmedBatterySpawn then
+            teleportTo(confirmedBatterySpawn)
+            ReplicatedStorage.Remotes.GrabBatteryRemote:FireServer(workspace.Terrain.BatterySpawnAttachment)
         end
-        task.wait(2) -- Scan every 2 seconds
+        task.wait(1.5)
+        -- Refresh location check each cycle
+        confirmedBatterySpawn = findAndValidateBatterySpawn()
     end
 
-    -- Phase 2: Look for valid deposit before teleporting
+    -- Step 3: Handle deposit once battery is held
     while hasBattery() do
-        if isDepositAvailable() then
-            print("Deposit point ready - teleporting to drop off!")
-            teleportTo(depositAttachment)
-            useRemote:FireServer(depositAttachment)
-        else
-            print("Deposit point not available yet - scanning again...")
+        if confirmedDepositLocation then
+            teleportTo(confirmedDepositLocation)
+            ReplicatedStorage.Remotes.UseBatteryOnCrateRemote:FireServer(workspace.Terrain.EggCrateSpawnAttachment)
         end
-        task.wait(2) -- Scan every 2 seconds
+        task.wait(1.5)
+        -- Refresh location check each cycle
+        confirmedDepositLocation = findAndValidateDeposit()
     end
 
-    -- Short pause before restarting cycle
-    task.wait(1)
+    -- Short pause before re-scanning everything
+    task.wait(2)
 end
