@@ -8,62 +8,44 @@ local remotes = replicatedStorage:WaitForChild("Remotes")
 local grabBatteryRemote = remotes:WaitForChild("GrabBatteryRemote")
 local useBatteryCrateRemote = remotes:WaitForChild("UseBatteryOnCrateRemote")
 
--- Attachments
+-- Attachments / Targets
 local terrain = workspaceService:WaitForChild("Terrain")
 local batteryAttachment = terrain:WaitForChild("BatterySpawnAttachment")
 local crateAttachment = terrain:WaitForChild("EggCrateSpawnAttachment")
 
 -- Configuration
-local LOOP_DELAY = 0.3 
+local LOOP_DELAY = 0.5 -- Time to wait between actions (in seconds)
+
 local localPlayer = players.LocalPlayer
 
--- Enhanced state check
-local function hasBattery()
-    local character = localPlayer.Character
-    if not character then return false end
-    
-    -- Check 1: Standard Instance/Tool check inside Character
-    if character:FindFirstChild("Battery") then return true end
-    
-    -- Check 2: Attribute check (Common for modern Roblox state tracking)
-    if character:GetAttribute("Battery") or character:GetAttribute("HasBattery") then
-        return true
-    end
-    
-    -- Check 3: Check LocalPlayer folder-based inventories if applicable
-    local values = localPlayer:FindFirstChild("Values") or localPlayer:FindFirstChild("leaderstats")
-    if values and values:FindFirstChild("Battery") and values.Battery.Value > 0 then
-        return true
-    end
-    
-    return false
-end
-
--- Safe Teleport
+-- Function to safely teleport the character to a target attachment
 local function teleportTo(attachment)
     local character = localPlayer.Character
     local rootPart = character and character:WaitForChild("HumanoidRootPart", 3)
     
     if rootPart and attachment then
+        -- Teleport slightly above the attachment position to prevent clipping
         rootPart.CFrame = CFrame.new(attachment.WorldPosition + Vector3.new(0, 2, 0))
         return true
     end
     return false
 end
 
--- Main Loop
+-- Main Automation Loop
 task.spawn(function()
     while true do
-        if not hasBattery() then
-            if teleportTo(batteryAttachment) then
-                task.wait(0.1)
-                grabBatteryRemote:FireServer(batteryAttachment)
-            end
-        else
-            if teleportTo(crateAttachment) then
-                task.wait(0.1)
-                useBatteryCrateRemote:FireServer(crateAttachment)
-            end
+        -- Step 1: Teleport to Battery and Grab It
+        if teleportTo(batteryAttachment) then
+            task.wait(0.1) -- Short pause to ensure physics/position registers
+            grabBatteryRemote:FireServer(batteryAttachment)
+        end
+        
+        task.wait(LOOP_DELAY)
+        
+        -- Step 2: Teleport to Crate and Deposit Battery
+        if teleportTo(crateAttachment) then
+            task.wait(0.1)
+            useBatteryCrateRemote:FireServer(crateAttachment)
         end
         
         task.wait(LOOP_DELAY)
