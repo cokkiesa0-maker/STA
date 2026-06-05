@@ -1,132 +1,82 @@
--- [[ CONFIGURATION ]] --
-local POST_DEPOSIT_WAIT = 3 -- Strict 3-second position freeze lock
+-- // Configuration
+local TWEEN_SPEED = 50 -- Adjust speed if the game has anti-cheat for teleporting (Studs per second)
+local USE_TWEENING = true -- Set to false for instant teleportation (Risky if anti-cheat is present)
 
--- [[ SERVICES ]] --
+-- // Services & Remotes
 local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
 
 local LocalPlayer = Players.LocalPlayer
-local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-local HumanoidRootPart = Character:WaitForChild("HumanoidRootPart")
-local Humanoid = Character:WaitForChild("Humanoid")
+local GrabRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("GrabBatteryRemote")
+local DepositRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("UseBatteryOnCrateRemote")
 
--- Remotes
-local Remotes = ReplicatedStorage:WaitForChild("Remotes")
-local GrabBatteryRemote = Remotes:WaitForChild("GrabBatteryRemote")
-local UseBatteryOnCrateRemote = Remotes:WaitForChild("UseBatteryOnCrateRemote")
+-- // Target Attachments
+local Terrain = Workspace:WaitForChild("Terrain")
+local BatteryAttachment = Terrain:WaitForChild("BatterySpawnAttachment")
+local CrateAttachment = Terrain:WaitForChild("EggCrateSpawnAttachment")
 
--- State tracking
-local CURRENT_STATE = "HUNTING"
+-- // Helper Function: Safe Teleportation/Tweening
+local function teleportTo(targetCFrame)
+    local character = LocalPlayer.Character
+    local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+    if not rootPart then return end
 
-LocalPlayer.CharacterAdded:Connect(function(newCharacter)
-    Character = newCharacter
-    HumanoidRootPart = newCharacter:WaitForChild("HumanoidRootPart")
-    Humanoid = newCharacter:WaitForChild("Humanoid")
-    CURRENT_STATE = "HUNTING" 
-end)
-
--- [[ ANTI-RUBBERBAND TELEPORT ]] --
-local function safeTeleport(targetCFrame)
-    if not HumanoidRootPart or not Humanoid then return end
-    
-    -- Unanchor and force physics states to clear old movement vectors
-    HumanoidRootPart.Anchored = false 
-    Humanoid:ChangeState(Enum.HumanoidStateType.Physics)
-    HumanoidRootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-    HumanoidRootPart.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-    
-    -- Instant coordinate snap
-    HumanoidRootPart.CFrame = targetCFrame * CFrame.new(0, 2, 0)
-    
-    -- Post-teleport freeze window to force the server to register your new coordinate
-    task.wait(0.1)
-    HumanoidRootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-    HumanoidRootPart.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-    Humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
-    
-    task.wait(0.2) -- Synchronization delay to completely bypass "teleporting back"
-end
-
--- [[ WORKSPACE SCANNER ]] --
-local function scanWorkspace()
-    local batteries = {}
-    local deposits = {}
-
-    for _, obj in ipairs(workspace:GetDescendants()) do
-        if obj:IsA("BasePart") or obj:IsA("Attachment") then
-            local lowerName = string.lower(obj.Name)
-            
-            -- Detect Battery Spawn locations / Attachments
-            if string.find(lowerName, "batteryspawn") and not string.find(lowerName, "crate") then
-                table.insert(batteries, obj)
-                
-            -- Detect Crate/Egg Deposit locations / Attachments
-            elseif string.find(lowerName, "eggcrate") or string.find(lowerName, "crate") or string.find(lowerName, "deposit") then
-                table.insert(deposits, obj)
-            end
-        end
+    if USE_TWEENING then
+        local distance = (rootPart.Position - targetCFrame.Position).Magnitude
+        local duration = distance / TWEEN_SPEED
+        local tween = TweenService:Create(rootPart, TweenInfo.new(duration, Enum.EasingStyle.Linear), {CFrame = targetCFrame})
+        
+        tween:Play()
+        tween.Completed:Wait()
+    else
+        rootPart.CFrame = targetCFrame
+        task.wait(0.1) -- Small delay for physics sync
     end
-    return batteries, deposits
 end
 
--- [[ CORE REPEATING LOOP ]] --
-local function run()
-    print("[Script Active] Remote-exploiting loop initialized. Teleport back protections armed.")
-    
+-- // Helper Function: Lock/Unlock Position
+local function toggleAnchor(state)
+    local character = LocalPlayer.Character
+    local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+    if rootPart then
+        rootPart.Anchored = state
+    end
+end
+
+-- // Main Automation Loop
+local function startAutomation()
     while true do
-        local batteries, deposits = scanWorkspace()
+        print("[Auto-Farm] Moving to Battery...")
         
-        -- STATE 1: Hunt and grab the Battery
-        if CURRENT_STATE == "HUNTING" then
-            if #batteries > 0 then
-                local targetBattery = batteries[1]
-                print("State: HUNTING -> Teleporting to Battery...")
-                
-                -- Support both Attachments (using WorldCFrame) and BaseParts (using CFrame)
-                local targetCFrame = targetBattery:IsA("Attachment") and targetBattery.WorldCFrame or targetBattery.CFrame
-                safeTeleport(targetCFrame)
-                
-                -- Fire Remote to automatically grab it without needing interaction UI
-                GrabBatteryRemote:FireServer(targetBattery)
-                task.wait(0.4)
-                
-                CURRENT_STATE = "DEPOSITING"
-                print("State Shift -> DEPOSITING")
-            else
-                print("State: HUNTING -> Waiting for BatterySpawn target to appear...")
-            end
-            
-        -- STATE 2: Find Deposit Egg Crate
-        elseif CURRENT_STATE == "DEPOSITING" then
-            if #deposits > 0 then
-                -- Randomly sample one of the active crates found in workspace
-                local targetDeposit = deposits[math.random(1, #deposits)]
-                print("State: DEPOSITING -> Teleporting to Deposit Crate...")
-                
-                local targetCFrame = targetDeposit:IsA("Attachment") and targetDeposit.WorldCFrame or targetDeposit.CFrame
-                safeTeleport(targetCFrame)
-                
-                -- Fire Remote to automatically drop it off
-                UseBatteryOnCrateRemote:FireServer(targetDeposit)
-                task.wait(0.2)
-                
-                -- [[ POST-DEPOSIT ANCHOR LOCK ]] --
-                print("Deposit finished! Rigidly locking position for exactly " .. POST_DEPOSIT_WAIT .. " seconds.")
-                HumanoidRootPart.Anchored = true
-                task.wait(POST_DEPOSIT_WAIT)
-                HumanoidRootPart.Anchored = false
-                print("Character unanchored successfully.")
-                
-                CURRENT_STATE = "HUNTING"
-                print("State Shift -> HUNTING")
-            else
-                print("State: DEPOSITING -> No valid EggCrate locations found. Resetting state.")
-                CURRENT_STATE = "HUNTING" 
-            end
-        end
+        -- 1. Teleport to Battery and Grab it
+        -- Using WorldCFrame since it's an Attachment
+        teleportTo(BatteryAttachment.WorldCFrame) 
+        task.wait(0.2) -- Brief pause to ensure alignment
         
-        task.wait(0.3)
+        GrabRemote:FireServer(BatteryAttachment)
+        print("[Auto-Farm] Battery Grabbed!")
+        task.wait(0.5)
+
+        -- 2. Teleport to Crate and Deposit
+        print("[Auto-Farm] Moving to Deposit Crate...")
+        teleportTo(CrateAttachment.WorldCFrame)
+        task.wait(0.2)
+
+        DepositRemote:FireServer(CrateAttachment)
+        print("[Auto-Farm] Battery Deposited!")
+
+        -- 3. Lock Position and Wait 3 Seconds (Bypass anti-rubberband/teleport back)
+        print("[Auto-Farm] Locking position for 3 seconds...")
+        toggleAnchor(true)
+        task.wait(3)
+        toggleAnchor(false)
+        
+        print("[Auto-Farm] Cycle complete. Restarting...")
+        task.wait(1) -- Safety delay between cycles
     end
 end
 
-pcall(run)
+-- Start the script
+task.spawn(startAutomation)
