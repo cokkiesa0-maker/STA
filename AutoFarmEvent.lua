@@ -52,15 +52,14 @@ local success, err = pcall(function()
         return nil
     end
     
-    -- Helper function to keep player in place (prevent teleport back to spawn)
-    local function lockPosition(duration)
-        if duration then
+    -- Helper function to lock player at specific position
+    local function lockAtPosition(targetCFrame, duration)
+        if duration and duration > 0 then
             local startTime = tick()
-            local lastPosition = HumanoidRootPart.CFrame
             
             while tick() - startTime < duration do
                 if HumanoidRootPart then
-                    HumanoidRootPart.CFrame = lastPosition
+                    HumanoidRootPart.CFrame = targetCFrame
                 end
                 wait(0.01)
             end
@@ -102,11 +101,9 @@ local success, err = pcall(function()
                     
                     -- Teleport to battery location
                     local targetPosition = batteryObject.Position + TELEPORT_OFFSET
-                    HumanoidRootPart.CFrame = CFrame.new(targetPosition)
-                    print("Teleported to battery")
-                    
-                    -- Lock position briefly to prevent being pushed back
-                    lockPosition(0.5)
+                    local targetCFrame = CFrame.new(targetPosition)
+                    HumanoidRootPart.CFrame = targetCFrame
+                    print("Teleported to battery at position: " .. tostring(targetPosition))
                     
                     -- Grab battery - try different argument formats
                     print("Grabbing battery...")
@@ -120,7 +117,12 @@ local success, err = pcall(function()
                         GrabBatteryRemote:FireServer(batteryObject)
                     end
                     
-                    print("Battery grabbed! Marking as grabbed and preparing to deposit...")
+                    print("Battery grabbed!")
+                    
+                    -- Lock at battery position to prevent being pushed back
+                    lockAtPosition(targetCFrame, 0.5)
+                    
+                    print("Marking as grabbed and preparing to deposit...")
                     batteryGrabbed = true
                     
                 else
@@ -156,11 +158,9 @@ local success, err = pcall(function()
                     
                     -- INSTANT Teleport to crate location
                     local targetPosition = crateObject.Position + TELEPORT_OFFSET
-                    HumanoidRootPart.CFrame = CFrame.new(targetPosition)
-                    print("Instantly teleported to egg crate deposit")
-                    
-                    -- Lock position to prevent teleport back to spawn
-                    lockPosition(1.5)
+                    local targetCFrame = CFrame.new(targetPosition)
+                    HumanoidRootPart.CFrame = targetCFrame
+                    print("Instantly teleported to egg crate deposit at position: " .. tostring(targetPosition))
                     
                     -- Use battery on crate - try different argument formats
                     print("Using battery on egg crate...")
@@ -174,12 +174,11 @@ local success, err = pcall(function()
                     end
                     
                     print("Battery deposited on crate!")
-                    wait(DELAY_BETWEEN_ACTIONS)
                     
-                    -- Wait 3-5 seconds after depositing battery (while staying locked in place)
+                    -- Wait 3-5 seconds after depositing battery while locked at deposit position
                     local waitTime = math.random(30, 50) / 10 -- Random between 3.0 and 5.0 seconds
-                    print("Waiting " .. tostring(waitTime) .. " seconds for battery to process...")
-                    lockPosition(waitTime)
+                    print("Waiting " .. tostring(waitTime) .. " seconds for battery to process (staying locked at deposit)...")
+                    lockAtPosition(targetCFrame, waitTime)
                     print("Wait time complete, ready for next cycle...")
                     
                     -- Mark battery as no longer grabbed for next cycle
