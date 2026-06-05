@@ -175,4 +175,41 @@ local function run()
                 print("State: HUNTING -> Awaiting battery respawn...")
             end
             
-        -- STATE 2
+        -- STATE 2: Find Deposit Ship
+        elseif CURRENT_STATE == "DEPOSITING" then
+            if #deposits > 0 then
+                local targetDeposit = deposits[math.random(1, #deposits)]
+                print("State: DEPOSITING -> Teleporting on dragon to Station...")
+                
+                safeTeleport(targetDeposit.CFrame)
+                interact()
+                
+                -- [[ POST-DEPOSIT ANCHOR LOCK ]] --
+                print("Drop-off finished! Anchoring context for exactly " .. POST_DEPOSIT_WAIT .. " seconds.")
+                
+                -- Anchor the dragon's root structure so you don't drop out of the seat during wait times
+                local dragon, seat = getDragonAndSeat()
+                local lockPart = (dragon and (dragon.PrimaryPart or seat)) or HumanoidRootPart
+                
+                if lockPart then
+                    lockPart.Anchored = true
+                    task.wait(POST_DEPOSIT_WAIT)
+                    lockPart.Anchored = false
+                else
+                    task.wait(POST_DEPOSIT_WAIT)
+                end
+                
+                print("Unanchored successfully.")
+                CURRENT_STATE = "HUNTING"
+                print("State Shift -> HUNTING")
+            else
+                print("State: DEPOSITING -> No valid targets found. Resetting state.")
+                CURRENT_STATE = "HUNTING" 
+            end
+        end
+        
+        task.wait(0.5)
+    end
+end
+
+pcall(run)
