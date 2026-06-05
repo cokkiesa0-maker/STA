@@ -1,228 +1,127 @@
--- Auto Farm Event Script - DIAGNOSTIC VERSION
--- With enhanced debugging to find the issue
+-- Services
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
 
-print("=== AUTO FARM EVENT STARTED (DIAGNOSTIC MODE) ===")
+local LocalPlayer = Players.LocalPlayer
 
-local success, err = pcall(function()
-    -- Get required services
-    local ReplicatedStorage = game:GetService("ReplicatedStorage")
-    local Workspace = game:GetService("Workspace")
-    local Players = game:GetService("Players")
+-- Remotes
+local Remotes = ReplicatedStorage:WaitForChild("Remotes")
+local GrabBatteryRemote = Remotes:WaitForChild("GrabBatteryRemote")
+local UseBatteryOnCrateRemote = Remotes:WaitForChild("UseBatteryOnCrateRemote")
+
+-- Targets
+local Terrain = Workspace:WaitForChild("Terrain")
+
+--------------------------------------------------------------------
+-- UI INITIALIZATION (Main Tab -> Event Farm Section)
+--------------------------------------------------------------------
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "GameSettingsMenu"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+
+-- Main Panel Frame ("Main Tab" container)
+local mainFrame = Instance.new("Frame")
+mainFrame.Size = UDim2.new(0, 320, 0, 220)
+mainFrame.Position = UDim2.new(0.5, -160, 0.5, -110)
+mainFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+mainFrame.BorderSizePixel = 0
+mainFrame.Parent = screenGui
+
+local uiCorner = Instance.new("UICorner")
+uiCorner.CornerRadius = UDim.new(0, 8)
+uiCorner.Parent = mainFrame
+
+-- Section Title Label ("Event Farm")
+local sectionLabel = Instance.new("TextLabel")
+sectionLabel.Size = UDim2.new(1, -20, 0, 30)
+sectionLabel.Position = UDim2.new(0, 10, 0, 10)
+sectionLabel.BackgroundTransparency = 1
+sectionLabel.Text = "Main Tab — Event Farm"
+sectionLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+sectionLabel.Font = Enum.Font.SourceSansBold
+sectionLabel.TextSize = 18
+sectionLabel.TextXAlignment = Enum.TextXAlignment.Left
+sectionLabel.Parent = mainFrame
+
+-- Action Button for Toggle
+local actionButton = Instance.new("TextButton")
+actionButton.Size = UDim2.new(0, 240, 0, 50)
+actionButton.Position = UDim2.new(0.5, -120, 0.5, -10)
+actionButton.Text = "Farm Status: OFF"
+actionButton.Font = Enum.Font.SourceSansBold
+actionButton.TextSize = 18
+actionButton.BackgroundColor3 = Color3.fromRGB(180, 50, 50) -- Start red for OFF
+actionButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+actionButton.Parent = mainFrame
+
+local buttonCorner = Instance.new("UICorner")
+buttonCorner.CornerRadius = UDim.new(0, 6)
+buttonCorner.Parent = actionButton
+
+--------------------------------------------------------------------
+-- FARMING LOGIC
+--------------------------------------------------------------------
+local isEnabled = false -- Global control state for the farm loop
+
+-- Helper function to safely teleport the character
+local function teleportTo(attachment)
+    local character = LocalPlayer.Character
+    local rootPart = character and character:FindFirstChild("HumanoidRootPart")
     
-    -- Get local player
-    local LocalPlayer = Players.LocalPlayer
-    local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-    local HumanoidRootPart = Character:WaitForChild("HumanoidRootPart", 10)
-    
-    print("LocalPlayer: " .. tostring(LocalPlayer.Name))
-    print("Character loaded: " .. tostring(Character.Name))
-    
-    -- Get remotes
-    local Remotes = ReplicatedStorage:WaitForChild("Remotes", 10)
-    local GrabBatteryRemote = Remotes:WaitForChild("GrabBatteryRemote", 10)
-    local UseBatteryOnCrateRemote = Remotes:WaitForChild("UseBatteryOnCrateRemote", 10)
-    
-    print("Remotes loaded successfully")
-    
-    -- DIAGNOSTIC: Print all workspace items
-    print("\n=== WORKSPACE CONTENTS ===")
-    for _, item in pairs(Workspace:GetChildren()) do
-        print("- " .. item.Name .. " (" .. item.ClassName .. ")")
-        
-        -- Print children of each item
-        for _, child in pairs(item:GetChildren()) do
-            print("  └─ " .. child.Name .. " (" .. child.ClassName .. ")")
-        end
+    if rootPart and attachment then
+        -- Teleport slightly above the attachment position to prevent clipping
+        rootPart.CFrame = CFrame.new(attachment.WorldPosition + Vector3.new(0, 2, 0))
+        task.wait(0.1) -- Small delay to allow physics/position to sync
+        return true
     end
-    
-    -- Configuration
-    local BATTERY_SPAWN_ATTACHMENT = "BatterySpawnAttachment"
-    local EGG_CRATE_SPAWN_ATTACHMENT = "EggCrateSpawnAttachment"
-    local DELAY_BETWEEN_ACTIONS = 0.5
-    local LOOP_DELAY = 1
-    local MAX_ITERATIONS = math.huge
-    local TELEPORT_OFFSET = Vector3.new(0, 3, 0)
-    
-    local iteration = 0
-    local batteryGrabbed = false
-    
-    -- Helper function to find attachment or part in workspace
-    local function findObject(objectName)
-        -- Search workspace descendants
-        for _, part in pairs(Workspace:GetDescendants()) do
-            if part.Name == objectName then
-                print("  ✓ Found: " .. objectName .. " at position " .. tostring(part.Position))
-                return part
+    return false
+end
+
+-- Main Automation Loop
+task.spawn(function()
+    while true do
+        -- Only execute farm actions if the UI switch is turned ON
+        if isEnabled then
+            -- 1. Grab Battery
+            local batteryAttachment = Terrain:FindFirstChild("BatterySpawnAttachment")
+            if batteryAttachment and isEnabled then -- Secondary check if toggled off mid-loop
+                print("Teleporting to Battery...")
+                if teleportTo(batteryAttachment) then
+                    GrabBatteryRemote:FireServer(batteryAttachment)
+                    task.wait(0.5) -- Cooldown after picking up
+                end
+            end
+
+            -- 2. Deposit Battery into Crate
+            local crateAttachment = Terrain:FindFirstChild("EggCrateSpawnAttachment")
+            if crateAttachment and isEnabled then -- Secondary check if toggled off mid-loop
+                print("Teleporting to Deposit Crate...")
+                if teleportTo(crateAttachment) then
+                    UseBatteryOnCrateRemote:FireServer(crateAttachment)
+                    task.wait(0.5) -- Cooldown after depositing
+                end
             end
         end
-        
-        -- Also check direct children
-        if Workspace:FindFirstChild(objectName) then
-            print("  ✓ Found (direct child): " .. objectName)
-            return Workspace:FindFirstChild(objectName)
-        end
-        
-        print("  ✗ NOT FOUND: " .. objectName)
-        return nil
+
+        task.wait(0.1) -- Loop throttle to prevent game crashes
     end
-    
-    -- Helper function to lock player at specific position
-    local function lockAtPosition(targetCFrame, duration)
-        if duration and duration > 0 then
-            local startTime = tick()
-            
-            while tick() - startTime < duration do
-                if HumanoidRootPart then
-                    HumanoidRootPart.CFrame = targetCFrame
-                end
-                wait(0.01)
-            end
-        end
-    end
-    
-    print("\nStarting farm loop...")
-    
-    while iteration < MAX_ITERATIONS do
-        iteration = iteration + 1
-        print("\n=== Iteration " .. iteration .. " ===")
-        
-        -- Update character reference in case of respawn
-        if not Character or not Character:FindFirstChild("HumanoidRootPart") then
-            Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-            HumanoidRootPart = Character:WaitForChild("HumanoidRootPart", 10)
-        end
-        HumanoidRootPart = Character:FindFirstChild("HumanoidRootPart") or HumanoidRootPart
-        
-        -- Reset battery grabbed flag at start of cycle
-        batteryGrabbed = false
-        
-        -- Step 1: Teleport to Battery and Grab it
-        if not batteryGrabbed then
-            local success1, err1 = pcall(function()
-                print("\n[STEP 1] Finding battery...")
-                
-                local batteryObject = findObject(BATTERY_SPAWN_ATTACHMENT)
-                if not batteryObject then
-                    print("  Trying alternative names...")
-                    batteryObject = findObject("Battery")
-                    if not batteryObject then
-                        batteryObject = findObject("BatterySpawn")
-                    end
-                end
-                
-                if batteryObject then
-                    print("[STEP 1] ✓ Battery found!")
-                    
-                    -- Teleport to battery location
-                    local targetPosition = batteryObject.Position + TELEPORT_OFFSET
-                    local targetCFrame = CFrame.new(targetPosition)
-                    HumanoidRootPart.CFrame = targetCFrame
-                    print("[STEP 1] Teleported to: " .. tostring(targetPosition))
-                    
-                    -- Grab battery - try different argument formats
-                    print("[STEP 1] Firing GrabBatteryRemote...")
-                    print("  Battery object type: " .. batteryObject.ClassName)
-                    
-                    -- Try sending the battery object itself
-                    if batteryObject:IsA("Attachment") then
-                        print("  Sending as Attachment")
-                        GrabBatteryRemote:FireServer(batteryObject)
-                    elseif batteryObject:FindFirstChild("Attachment") then
-                        print("  Found child Attachment, sending that")
-                        GrabBatteryRemote:FireServer(batteryObject:FindFirstChild("Attachment"))
-                    else
-                        print("  Sending battery object directly")
-                        GrabBatteryRemote:FireServer(batteryObject)
-                    end
-                    
-                    print("[STEP 1] ✓ Remote fired! Battery should be grabbed")
-                    
-                    -- Lock at battery position to prevent being pushed back
-                    lockAtPosition(targetCFrame, 0.5)
-                    
-                    batteryGrabbed = true
-                    
-                else
-                    print("[STEP 1] ✗ Battery not found!")
-                end
-            end)
-            
-            if not success1 then
-                print("[STEP 1] ✗ ERROR: " .. tostring(err1))
-            end
-        end
-        
-        -- Step 2: If battery was grabbed, INSTANTLY teleport to deposit
-        if batteryGrabbed then
-            local success2, err2 = pcall(function()
-                print("\n[STEP 2] Finding egg crate deposit...")
-                
-                local crateObject = findObject(EGG_CRATE_SPAWN_ATTACHMENT)
-                if not crateObject then
-                    print("  Trying alternative names...")
-                    crateObject = findObject("EggCrate")
-                    if not crateObject then
-                        crateObject = findObject("CrateSpawn")
-                    end
-                end
-                
-                if crateObject then
-                    print("[STEP 2] ✓ Crate found!")
-                    
-                    -- INSTANT Teleport to crate location
-                    local targetPosition = crateObject.Position + TELEPORT_OFFSET
-                    local targetCFrame = CFrame.new(targetPosition)
-                    HumanoidRootPart.CFrame = targetCFrame
-                    print("[STEP 2] Teleported to: " .. tostring(targetPosition))
-                    
-                    -- Use battery on crate
-                    print("[STEP 2] Firing UseBatteryOnCrateRemote...")
-                    print("  Crate object type: " .. crateObject.ClassName)
-                    
-                    if crateObject:IsA("Attachment") then
-                        print("  Sending as Attachment")
-                        UseBatteryOnCrateRemote:FireServer(crateObject)
-                    elseif crateObject:FindFirstChild("Attachment") then
-                        print("  Found child Attachment, sending that")
-                        UseBatteryOnCrateRemote:FireServer(crateObject:FindFirstChild("Attachment"))
-                    else
-                        print("  Sending crate object directly")
-                        UseBatteryOnCrateRemote:FireServer(crateObject)
-                    end
-                    
-                    print("[STEP 2] ✓ Remote fired!")
-                    
-                    -- Wait 3-5 seconds after depositing battery while locked at deposit position
-                    local waitTime = math.random(30, 50) / 10
-                    print("[STEP 2] Waiting " .. tostring(waitTime) .. " seconds...")
-                    lockAtPosition(targetCFrame, waitTime)
-                    print("[STEP 2] ✓ Wait complete!")
-                    
-                    batteryGrabbed = false
-                    
-                else
-                    print("[STEP 2] ✗ Crate not found!")
-                end
-            end)
-            
-            if not success2 then
-                print("[STEP 2] ✗ ERROR: " .. tostring(err2))
-            end
-        end
-        
-        -- Wait before next iteration
-        print("\nWaiting " .. LOOP_DELAY .. " second(s) before next cycle...")
-        wait(LOOP_DELAY)
-    end
-    
-    print("\n=== AUTO FARM EVENT COMPLETED ===")
-    
 end)
 
--- Error handling
-if not success then
-    print("\n=== CRITICAL ERROR ===")
-    print("Error: " .. tostring(err))
-    print("Traceback:")
-    print(debug.traceback())
-end
+--------------------------------------------------------------------
+-- UI INTERACTION LINKING
+--------------------------------------------------------------------
+actionButton.MouseButton1Click:Connect(function()
+    isEnabled = not isEnabled
+    
+    if isEnabled then
+        actionButton.BackgroundColor3 = Color3.fromRGB(0, 150, 136) -- Teal color accent for ON
+        actionButton.Text = "Farm Status: ON"
+        print("Event Farm Activated.")
+    else
+        actionButton.BackgroundColor3 = Color3.fromRGB(180, 50, 50) -- Red for OFF
+        actionButton.Text = "Farm Status: OFF"
+        print("Event Farm Deactivated.")
+    end
+end)
