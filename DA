@@ -1,84 +1,97 @@
--- // Configuration
-local TWEEN_SPEED = 65 -- Speed of flight/teleportation
-local FLYING_HEIGHT = 15 -- Studs off the ground (helps bypass "must be flying/dragon" checks)
-local LOCK_TIME = 3 -- Seconds to wait/lock position after depositing
-
--- // Services & Remotes
-local Players = game:GetService("Players")
+local PathfindingService = game:GetService("PathfindingService")
 local TweenService = game:GetService("TweenService")
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
--- [[ NOTE: Look in ReplicatedStorage.Remotes for something named "Transform", "SpawnDragon", or "Mount" if you need to be a dragon first! ]]
+local Workspace = game:GetService("Workspace")
 
-local LocalPlayer = Players.LocalPlayer
-local GrabRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("GrabBatteryRemote")
-local DepositRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("UseBatteryOnCrateRemote")
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local rootPart = character:WaitForChild("HumanoidRootPart")
 
-local Terrain = game:GetService("Workspace"):WaitForChild("Terrain")
-local BatteryAttachment = Terrain:WaitForChild("BatterySpawnAttachment")
-local CrateAttachment = Terrain:WaitForChild("EggCrateSpawnAttachment")
+-- Remotes
+local Remotes = ReplicatedStorage:WaitForChild("Remotes")
+local GrabBatteryRemote = Remotes:WaitForChild("GrabBatteryRemote")
+local UseBatteryOnCrateRemote = Remotes:WaitForChild("UseBatteryOnCrateRemote")
 
--- // Helper Function: Simulate Dragon Flight / Tweening
-local function flyTo(targetCFrame)
-    local character = LocalPlayer.Character
-    local rootPart = character and character:FindFirstChild("HumanoidRootPart")
-    if not rootPart then return end
+-- Configuration
+local TWEEN_SPEED = 30 -- Studs per second
+local INTERACT_DISTANCE = 7 -- Distance to trigger remote
 
-    -- Create a flight path that stays slightly above the target initially
-    local flightPath = targetCFrame + Vector3.new(0, FLYING_HEIGHT, 0)
-    local distance = (rootPart.Position - flightPath.Position).Magnitude
-    local duration = distance / TWEEN_SPEED
+-- Pathfinding Agent Parameters (To prevent clipping/stucking)
+local path = PathfindingService:CreatePath({
+	AgentRadius = 2,
+	AgentHeight = 5,
+	AgentCanJump = true,
+	AgentCollisionGroup = "Default"
+})
 
-    -- Tween to the sky above the target first
-    local tweenSky = TweenService:Create(rootPart, TweenInfo.new(duration, Enum.EasingStyle.Linear), {CFrame = flightPath})
-    tweenSky:Play()
-    tweenSky.Completed:Wait()
+-- Function to move smoothly between points using TweenService at a constant speed
+local function tweenToPosition(targetPosition)
+	local distance = (rootPart.Position - targetPosition).Magnitude
+	local duration = distance / TWEEN_SPEED
 
-    -- Drop down directly onto the attachment
-    rootPart.CFrame = targetCFrame
-    task.wait(0.2)
+	local tweenInfo = TweenInfo.new(duration, Enum.EasingStyle.Linear, Enum.EasingDirection.Out)
+	local tween = TweenService:Create(rootPart, tweenInfo, {CFrame = CFrame.new(targetPosition)})
+	
+	tween:Play()
+	tween.Completed:Wait()
 end
 
--- // Helper Function: Lock Character in Place
-local function setPositionLock(state)
-    local character = LocalPlayer.Character
-    local rootPart = character and character:FindFirstChild("HumanoidRootPart")
-    if rootPart then
-        rootPart.Anchored = state
-    end
+-- Function to navigate the path safely waypoint by waypoint (Avoids Noclip)
+local function walkPathTo(targetAttachment)
+	if not targetAttachment or not targetAttachment:IsA("Attachment") then return false end
+	
+	local success, errorMessage = pcall(function()
+		path:ComputeAsync(rootPart.Position, targetAttachment.WorldPosition)
+	end)
+
+	if success and path.Status == Enum.PathStatus.Success then
+		local waypoints = path:GetWaypoints()
+		
+		for _, waypoint in ipairs(waypoints) do
+			-- Check if we are close enough to the final destination early
+			if (rootPart.Position - targetAttachment.WorldPosition).Magnitude <= INTERACT_DISTANCE then
+				break
+			end
+			-- Move to the next pathfinding node safely
+			tweenToPosition(waypoint.Position)
+		end
+		return true
+	else
+		warn("Path definition failed: " .. tostring(errorMessage))
+		return false
+	end
 end
 
--- // Automation Loop
-local function startDragonFarm()
-    while true do
-        -- 1. Fly to Battery
-        print("[Dragon Farm] Flying to Battery...")
-        flyTo(BatteryAttachment.WorldCFrame)
-        task.wait(0.3)
+-- Main Loop: Scan, Move, Interact
+task.spawn(function()
+	while true do
+		task.wait(1) -- Scan interval
 
-        -- Fire the grab remote
-        GrabRemote:FireServer(BatteryAttachment)
-        print("[Dragon Farm] Grab Remote Fired!")
-        task.wait(0.5)
+		-- 1. Scan for Battery
+		local batterySpawn = Workspace:WaitForChild("Terrain"):FindFirstChild("BatterySpawnAttachment")
+		if batterySpawn then
+			print("Battery located. Pathfinding...")
+			local reached = walkPathTo(batterySpawn)
+			
+			if reached or (rootPart.Position - batterySpawn.WorldPosition).Magnitude <= INTERACT_DISTANCE then
+				print("Interacting with Battery...")
+				GrabBatteryRemote:FireServer(batterySpawn)
+				task.wait(0.5) -- Small delay to allow inventory update
+			end
+		end
 
-        -- 2. Fly to Crate
-        print("[Dragon Farm] Flying to Deposit Crate...")
-        flyTo(CrateAttachment.WorldCFrame)
-        task.wait(0.3)
-
-        -- Fire the deposit remote
-        DepositRemote:FireServer(CrateAttachment)
-        print("[Dragon Farm] Deposit Remote Fired!")
-
-        -- 3. Anchor, Wait, and Prevent Teleport-Back
-        print("[Dragon Farm] Locking position to bypass server check...")
-        setPositionLock(true)
-        task.wait(LOCK_TIME)
-        setPositionLock(false)
-
-        print("[Dragon Farm] Loop finished. Waiting for respawn...")
-        task.wait(2) -- Cooldown before next cycle
-    end
-end
-
--- Start
-task.spawn(startDragonFarm)
+		-- 2. Scan for Battery Deposit (Egg Crate)
+		local crateSpawn = Workspace:WaitForChild("Terrain"):FindFirstChild("EggCrateSpawnAttachment")
+		if crateSpawn then
+			print("Deposit Crate located. Pathfinding...")
+			local reached = walkPathTo(crateSpawn)
+			
+			if reached or (rootPart.Position - crateSpawn.WorldPosition).Magnitude <= INTERACT_DISTANCE then
+				print("Depositing Battery...")
+				UseBatteryOnCrateRemote:FireServer(crateSpawn)
+				task.wait(0.5)
+			end
+		end
+	end
+end)
