@@ -31,6 +31,7 @@ local success, err = pcall(function()
     local LOOP_DELAY = 1
     local MAX_ITERATIONS = math.huge
     local TELEPORT_OFFSET = Vector3.new(0, 3, 0)
+    local BATTERY_DEPOSIT_WAIT = math.random(3, 5) -- Random wait between 3-5 seconds after depositing battery
     
     local iteration = 0
     
@@ -151,6 +152,13 @@ local success, err = pcall(function()
                 
                 print("Battery used on crate!")
                 wait(DELAY_BETWEEN_ACTIONS)
+                
+                -- Wait 3-5 seconds after depositing battery
+                local waitTime = math.random(30, 50) / 10 -- Random between 3.0 and 5.0 seconds
+                print("Waiting " .. tostring(waitTime) .. " seconds for battery to process...")
+                wait(waitTime)
+                print("Wait time complete, starting next cycle...")
+                
             else
                 print("Warning: Egg crate not found")
             end
