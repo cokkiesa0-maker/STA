@@ -1,0 +1,124 @@
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+-- Create Window
+local Window = Rayfield:CreateWindow({
+    Name = "Battery Automation Hub",
+    LoadingTitle = "Loading Script...",
+    LoadingSubtitle = "by AI Assistant",
+    ConfigurationSaving = {
+        Enabled = true,
+        FolderName = "BatteryFarmConfig",
+        FileName = "Config"
+    },
+    Discord = {
+        Enabled = false,
+        Invite = "",
+        RememberJoins = true
+    },
+    KeySystem = false
+})
+
+-- Variables for Toggles
+local _G = _G or {}
+_G.AutoFarm = false
+_G.AutoTeleport = false
+
+-- Services & Remotes
+local replicatedStorage = game:GetService("ReplicatedStorage")
+local workspace = game:GetService("Workspace")
+local players = game:GetService("Players")
+
+local remotes = replicatedStorage:WaitForChild("Remotes")
+local grabBatteryRemote = remotes:WaitForChild("GrabBatteryRemote")
+local useBatteryRemote = remotes:WaitForChild("UseBatteryOnCrateRemote")
+
+local terrain = workspace:WaitForChild("Terrain")
+local batteryAttachment = terrain:WaitForChild("BatterySpawnAttachment")
+local eggCrateAttachment = terrain:WaitForChild("EggCrateSpawnAttachment")
+
+local localPlayer = players.LocalPlayer
+
+-- Create Tab
+local FarmTab = Window:CreateTab("Automation", 4483362458) -- Section Icon ID
+
+-- Section Header
+local FarmSection = FarmTab:CreateSection("Main Farm Functions")
+
+-- Toggle 1: Auto Farm Loop
+local FarmToggle = FarmTab:CreateToggle({
+    Name = "Auto Grab & Use Battery",
+    CurrentValue = false,
+    Flag = "AutoFarmFlag",
+    Callback = function(Value)
+        _G.AutoFarm = Value
+        
+        if Value then
+            -- Run the loop in a background thread
+            task.spawn(function()
+                while _G.AutoFarm do
+                    -- 1. Grab Battery
+                    local grabArgs = { batteryAttachment }
+                    grabBatteryRemote:FireServer(unpack(grabArgs))
+                    
+                    task.wait(0.3) -- Small delay to prevent remote spam kicks
+                    
+                    -- 2. Use Battery
+                    local useArgs = { eggCrateAttachment }
+                    useBatteryRemote:FireServer(unpack(useArgs))
+                    
+                    task.wait(0.3)
+                end
+            end)
+        end
+    end,
+})
+
+-- Toggle 2: Auto Teleport to Crate
+local TeleportToggle = FarmTab:CreateToggle({
+    Name = "Auto Teleport to Crate",
+    CurrentValue = false,
+    Flag = "TeleportFlag",
+    Callback = function(Value)
+        _G.AutoTeleport = Value
+        
+        if Value then
+            task.spawn(function()
+                while _G.AutoTeleport do
+                    local character = localPlayer.Character or localPlayer.CharacterAdded:Wait()
+                    local hrp = character:WaitForChild("HumanoidRootPart", 5)
+                    
+                    -- Use the attachment's world position to teleport safely
+                    if hrp and eggCrateAttachment then
+                        hrp.CFrame = CFrame.new(eggCrateAttachment.WorldPosition + Vector3.new(0, 3, 0))
+                    end
+                    
+                    task.wait(1) -- Teleports every second to keep you there if knocked away
+                end
+            end)
+        end
+    end,
+})
+
+-- Section Header for Utilities
+local UtilsSection = FarmTab:CreateSection("Utilities")
+
+-- Single Use Instant Teleport Button
+local TeleportButton = FarmTab:CreateButton({
+    Name = "Teleport to Crate (Once)",
+    Callback = function()
+        local character = localPlayer.Character or localPlayer.CharacterAdded:Wait()
+        local hrp = character:FindFirstChild("HumanoidRootPart")
+        if hrp and eggCrateAttachment then
+            hrp.CFrame = CFrame.new(eggCrateAttachment.WorldPosition + Vector3.new(0, 3, 0))
+            Rayfield:Notify({
+                Name = "Teleport Success",
+                Content = "Teleported to Egg Crate Attachment!",
+                Duration = 2,
+                Image = 4483362458,
+            })
+        end
+    end,
+})
+
+-- Load the Configuration automatically if saved
+Rayfield:LoadConfiguration()
