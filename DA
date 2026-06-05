@@ -1,131 +1,105 @@
 -- CONFIGURABLE SETTINGS
-local GRAB_DELAY = 0.5          -- Delay before/after firing grab remote
-local DEPOSIT_DELAY = 0.5       -- Delay before/after firing deposit remote
-local SPAWN_CHECK_INTERVAL = 1  -- Wait between battery checks if missing
-local MOVE_TO_WAIT = 0.3        -- Check movement progress interval
-local MAX_MOVE_WAIT = 10        -- Max time to wait for character to reach target
-local INTERACTION_RANGE = 8     -- Distance needed to interact with objects
+local TELEPORT_OFFSET = Vector3.new(0, 2, 0) -- Prevent ground clipping
+local GRAB_DELAY = 0.3 -- Small delay to avoid remote spam
+local DEPOSIT_DELAY = 0.3
+local POST_DEPOSIT_WAIT = 3 -- Exact lock time at deposit location
+local RETRY_DELAY = 1 -- Wait before retrying if interaction fails
 
--- SERVICES & DEPENDENCY WAIT CHECKS
+-- SERVICES & DEPENDENCY SAFETY CHECKS
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
--- Wait for critical objects to exist
-local RemotesFolder = ReplicatedStorage:WaitForChild("Remotes", 30)
-local GrabBatteryRemote = RemotesFolder:WaitForChild("GrabBatteryRemote", 30)
-local UseBatteryOnCrateRemote = RemotesFolder:WaitForChild("UseBatteryOnCrateRemote", 30)
+-- Wait for critical objects to load (30s timeout max)
+local Remotes = ReplicatedStorage:WaitForChild("Remotes", 30)
+local GrabRemote = Remotes:WaitForChild("GrabBatteryRemote", 30)
+local DepositRemote = Remotes:WaitForChild("UseBatteryOnCrateRemote", 30)
 
 local Terrain = Workspace:WaitForChild("Terrain", 30)
-local BatterySpawn = Terrain:WaitForChild("BatterySpawnAttachment", 30)
-local EggCrateSpawn = Terrain:WaitForChild("EggCrateSpawnAttachment", 30)
+local BatteryPoint = Terrain:WaitForChild("BatterySpawnAttachment", 30)
+local DepositPoint = Terrain:WaitForChild("EggCrateSpawnAttachment", 30)
 
--- Get player/character references
+-- Player/Character References
 local LocalPlayer = Players.LocalPlayer
 local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+local RootPart = Character:WaitForChild("HumanoidRootPart", 10)
 local Humanoid = Character:WaitForChild("Humanoid", 10)
-local HumanoidRootPart = Character:WaitForChild("HumanoidRootPart", 10)
 
--- Function to check if player has battery (UPDATE THIS TO MATCH YOUR GAME!)
+-- BATTERY DETECTION - UPDATE THIS TO MATCH YOUR GAME!
+-- Replace with how your game confirms battery possession
 local function hasBattery()
-    -- Check common locations - adjust names/conditions as needed
-    local toolNames = {"Battery", "PowerCell", "BatteryItem"}
-    for _, name in ipairs(toolNames) do
-        if LocalPlayer.Backpack:FindFirstChild(name) or Character:FindFirstChild(name) then
-            return true
-        end
-    end
-    if LocalPlayer:GetAttribute("HasBattery") or (LocalPlayer:FindFirstChild("HasBattery") and LocalPlayer.HasBattery.Value) then
-        return true
-    end
-    return false
+    -- Example checks - uncomment/modify the one that works:
+    -- 1. Check for tool in backpack/character
+    return LocalPlayer.Backpack:FindFirstChild("Battery") or Character:FindFirstChild("Battery")
+    -- 2. Check player attribute
+    -- return LocalPlayer:GetAttribute("HoldingBattery") == true
+    -- 3. Check player value object
+    -- return LocalPlayer:FindFirstChild("HasBattery") and LocalPlayer.HasBattery.Value
 end
 
--- Function to move character to target position
-local function moveToTarget(targetPosition)
-    -- Ensure character is valid
-    if not Humanoid or not HumanoidRootPart or Humanoid.Health <= 0 then
+-- Helper: Safely teleport character
+local function teleportTo(target)
+    if not RootPart or Humanoid.Health <= 0 then
         Character = LocalPlayer.CharacterAdded:Wait()
+        RootPart = Character:WaitForChild("HumanoidRootPart", 10)
         Humanoid = Character:WaitForChild("Humanoid", 10)
-        HumanoidRootPart = Character:WaitForChild("HumanoidRootPart", 10)
-        task.wait(MOVE_TO_WAIT)
     end
-
-    -- Start moving
-    Humanoid:MoveTo(targetPosition)
-    Humanoid.MoveToFinished:Connect(function(reached) end) -- Prevent memory leaks
-
-    -- Wait until reached or timeout
-    local startTime = os.clock()
-    while (HumanoidRootPart.Position - targetPosition).Magnitude > INTERACTION_RANGE do
-        if os.clock() - startTime > MAX_MOVE_WAIT then
-            print("Movement timed out - retrying...")
-            Humanoid:MoveTo(targetPosition) -- Retry movement
-            startTime = os.clock()
-        end
-        if Humanoid.Health <= 0 then return false end
-        task.wait(MOVE_TO_WAIT)
-    end
-    return true
+    RootPart.CFrame = target.WorldCFrame + TELEPORT_OFFSET
+    task.wait(0.1) -- Small pause for game to register position
 end
 
--- Main farming loop
-while task.wait() do
-    -- SECTION 1: Acquire Battery
-    local batteryAcquired = false
-    while not batteryAcquired do
-        -- Move to battery spawn location
-        print("Moving to battery spawn...")
-        local reachedSpawn = moveToTarget(BatterySpawn.WorldPosition)
-        if not reachedSpawn then continue end
-
-        -- Wait and attempt to grab battery
+-- MAIN FARMING LOOP
+while true do
+    -- STEP 1: GET BATTERY
+    print("Heading to battery spawn...")
+    local batteryGot = false
+    
+    while not batteryGot do
+        -- Teleport to battery location
+        teleportTo(BatteryPoint)
+        
+        -- Auto-trigger grab interaction
         task.wait(GRAB_DELAY)
-        local grabSuccess = pcall(function()
-            GrabBatteryRemote:FireServer(BatterySpawn)
+        local success = pcall(function()
+            GrabRemote:FireServer(BatteryPoint)
         end)
-
-        if grabSuccess then
-            task.wait(GRAB_DELAY * 2) -- Give game time to register pickup
-            if hasBattery() then
-                batteryAcquired = true
-                print("Battery acquired successfully!")
+        
+        if success then
+            task.wait(GRAB_DELAY) -- Let game process pickup
+            batteryGot = hasBattery()
+            if batteryGot then
+                print("✅ Battery collected!")
             else
-                print("Battery not detected - retrying in " .. SPAWN_CHECK_INTERVAL .. "s...")
-                task.wait(SPAWN_CHECK_INTERVAL)
+                print("❌ Battery not found - retrying...")
+                task.wait(RETRY_DELAY)
             end
         else
-            print("Failed to fire grab remote - retrying...")
-            task.wait(SPAWN_CHECK_INTERVAL)
+            print("❌ Failed to trigger grab - retrying...")
+            task.wait(RETRY_DELAY)
         end
     end
 
-    -- SECTION 2: Deposit Battery
-    if batteryAcquired then
-        -- Move to crate location
-        print("Moving to deposit crate...")
-        local reachedCrate = moveToTarget(EggCrateSpawn.WorldPosition)
-        if not reachedCrate then continue end
-
-        -- Attempt to deposit battery
-        task.wait(DEPOSIT_DELAY)
-        local depositSuccess = pcall(function()
-            UseBatteryOnCrateRemote:FireServer(EggCrateSpawn)
-        end)
-
-        if depositSuccess then
-            task.wait(DEPOSIT_DELAY * 2) -- Give game time to register deposit
-            if not hasBattery() then
-                print("Battery deposited! Locking position for 3 seconds...")
-                Humanoid:MoveTo(HumanoidRootPart.Position) -- Stop movement
-                task.wait(3)
-            else
-                print("Deposit may have failed - retrying...")
-                task.wait(DEPOSIT_DELAY)
-            end
+    -- STEP 2: DEPOSIT BATTERY
+    print("Heading to deposit point...")
+    teleportTo(DepositPoint)
+    
+    -- Auto-trigger deposit interaction
+    task.wait(DEPOSIT_DELAY)
+    local depositSuccess = pcall(function()
+        DepositRemote:FireServer(DepositPoint)
+    end)
+    
+    if depositSuccess then
+        task.wait(DEPOSIT_DELAY) -- Let game process deposit
+        if not hasBattery() then
+            print("✅ Battery deposited! Locking position for " .. POST_DEPOSIT_WAIT .. "s...")
+            task.wait(POST_DEPOSIT_WAIT) -- Exact lock time
         else
-            print("Failed to fire deposit remote - retrying...")
-            task.wait(DEPOSIT_DELAY)
+            print("❌ Deposit failed - retrying deposit...")
+            task.wait(RETRY_DELAY)
         end
+    else
+        print("❌ Failed to trigger deposit - retrying...")
+        task.wait(RETRY_DELAY)
     end
 end
