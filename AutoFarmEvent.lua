@@ -1,6 +1,6 @@
 -- Auto Farm Event Script
 -- Automatically teleports to batteries, grabs them, rides dragon to egg crates, and uses batteries to farm event rewards
--- Press 'T' to toggle the script on/off
+-- Click the toggle button in the top-right corner to enable/disable farming
 
 print("=== AUTO FARM EVENT STARTED ===")
 
@@ -9,10 +9,10 @@ local success, err = pcall(function()
     local ReplicatedStorage = game:GetService("ReplicatedStorage")
     local Workspace = game:GetService("Workspace")
     local Players = game:GetService("Players")
-    local UserInputService = game:GetService("UserInputService")
     
     -- Get local player
     local LocalPlayer = Players.LocalPlayer
+    local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
     local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
     local HumanoidRootPart = Character:WaitForChild("HumanoidRootPart", 10)
     
@@ -40,6 +40,47 @@ local success, err = pcall(function()
     local iteration = 0
     local dragonMounted = false
     local farmingEnabled = true -- Toggle state
+    
+    -- Create GUI Toggle Button
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "FarmToggleGui"
+    screenGui.ResetOnSpawn = false
+    screenGui.Parent = PlayerGui
+    
+    local toggleButton = Instance.new("TextButton")
+    toggleButton.Name = "ToggleButton"
+    toggleButton.Size = UDim2.new(0, 100, 0, 50)
+    toggleButton.Position = UDim2.new(1, -120, 0, 20)
+    toggleButton.BackgroundColor3 = Color3.fromRGB(0, 200, 0) -- Green for enabled
+    toggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    toggleButton.TextSize = 14
+    toggleButton.Font = Enum.Font.GothamBold
+    toggleButton.Text = "🟢 ON"
+    toggleButton.BorderSizePixel = 0
+    toggleButton.Parent = screenGui
+    
+    local UICorner = Instance.new("UICorner")
+    UICorner.CornerRadius = UDim.new(0, 8)
+    UICorner.Parent = toggleButton
+    
+    -- Toggle function
+    local function toggleFarming()
+        farmingEnabled = not farmingEnabled
+        if farmingEnabled then
+            print("🟢 FARMING ENABLED")
+            toggleButton.BackgroundColor3 = Color3.fromRGB(0, 200, 0) -- Green
+            toggleButton.Text = "🟢 ON"
+        else
+            print("🔴 FARMING DISABLED")
+            toggleButton.BackgroundColor3 = Color3.fromRGB(200, 0, 0) -- Red
+            toggleButton.Text = "🔴 OFF"
+        end
+    end
+    
+    -- Button click handler
+    toggleButton.MouseButton1Click:Connect(function()
+        toggleFarming()
+    end)
     
     -- Helper function to find and mount dragon
     local function mountDragon()
@@ -106,27 +147,8 @@ local success, err = pcall(function()
         return nil
     end
     
-    -- Toggle function
-    local function toggleFarming()
-        farmingEnabled = not farmingEnabled
-        if farmingEnabled then
-            print("🟢 FARMING ENABLED")
-        else
-            print("🔴 FARMING DISABLED")
-        end
-    end
-    
-    -- Input handling for 'T' key
-    UserInputService.InputBegan:Connect(function(input, gameProcessed)
-        if gameProcessed then return end
-        
-        if input.KeyCode == Enum.KeyCode.T then
-            toggleFarming()
-        end
-    end)
-    
     print("Starting farm loop...")
-    print("Press 'T' to toggle farming on/off")
+    print("Click the button in the top-right corner to toggle farming on/off")
     
     while iteration < MAX_ITERATIONS do
         -- Check if farming is enabled
