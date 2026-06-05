@@ -1,43 +1,45 @@
 -- // Configuration
-local TWEEN_SPEED = 50 -- Adjust speed if the game has anti-cheat for teleporting (Studs per second)
-local USE_TWEENING = true -- Set to false for instant teleportation (Risky if anti-cheat is present)
+local TWEEN_SPEED = 65 -- Speed of flight/teleportation
+local FLYING_HEIGHT = 15 -- Studs off the ground (helps bypass "must be flying/dragon" checks)
+local LOCK_TIME = 3 -- Seconds to wait/lock position after depositing
 
 -- // Services & Remotes
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Workspace = game:GetService("Workspace")
+-- [[ NOTE: Look in ReplicatedStorage.Remotes for something named "Transform", "SpawnDragon", or "Mount" if you need to be a dragon first! ]]
 
 local LocalPlayer = Players.LocalPlayer
 local GrabRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("GrabBatteryRemote")
 local DepositRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("UseBatteryOnCrateRemote")
 
--- // Target Attachments
-local Terrain = Workspace:WaitForChild("Terrain")
+local Terrain = game:GetService("Workspace"):WaitForChild("Terrain")
 local BatteryAttachment = Terrain:WaitForChild("BatterySpawnAttachment")
 local CrateAttachment = Terrain:WaitForChild("EggCrateSpawnAttachment")
 
--- // Helper Function: Safe Teleportation/Tweening
-local function teleportTo(targetCFrame)
+-- // Helper Function: Simulate Dragon Flight / Tweening
+local function flyTo(targetCFrame)
     local character = LocalPlayer.Character
     local rootPart = character and character:FindFirstChild("HumanoidRootPart")
     if not rootPart then return end
 
-    if USE_TWEENING then
-        local distance = (rootPart.Position - targetCFrame.Position).Magnitude
-        local duration = distance / TWEEN_SPEED
-        local tween = TweenService:Create(rootPart, TweenInfo.new(duration, Enum.EasingStyle.Linear), {CFrame = targetCFrame})
-        
-        tween:Play()
-        tween.Completed:Wait()
-    else
-        rootPart.CFrame = targetCFrame
-        task.wait(0.1) -- Small delay for physics sync
-    end
+    -- Create a flight path that stays slightly above the target initially
+    local flightPath = targetCFrame + Vector3.new(0, FLYING_HEIGHT, 0)
+    local distance = (rootPart.Position - flightPath.Position).Magnitude
+    local duration = distance / TWEEN_SPEED
+
+    -- Tween to the sky above the target first
+    local tweenSky = TweenService:Create(rootPart, TweenInfo.new(duration, Enum.EasingStyle.Linear), {CFrame = flightPath})
+    tweenSky:Play()
+    tweenSky.Completed:Wait()
+
+    -- Drop down directly onto the attachment
+    rootPart.CFrame = targetCFrame
+    task.wait(0.2)
 end
 
--- // Helper Function: Lock/Unlock Position
-local function toggleAnchor(state)
+-- // Helper Function: Lock Character in Place
+local function setPositionLock(state)
     local character = LocalPlayer.Character
     local rootPart = character and character:FindFirstChild("HumanoidRootPart")
     if rootPart then
@@ -45,38 +47,38 @@ local function toggleAnchor(state)
     end
 end
 
--- // Main Automation Loop
-local function startAutomation()
+-- // Automation Loop
+local function startDragonFarm()
     while true do
-        print("[Auto-Farm] Moving to Battery...")
-        
-        -- 1. Teleport to Battery and Grab it
-        -- Using WorldCFrame since it's an Attachment
-        teleportTo(BatteryAttachment.WorldCFrame) 
-        task.wait(0.2) -- Brief pause to ensure alignment
-        
+        -- 1. Fly to Battery
+        print("[Dragon Farm] Flying to Battery...")
+        flyTo(BatteryAttachment.WorldCFrame)
+        task.wait(0.3)
+
+        -- Fire the grab remote
         GrabRemote:FireServer(BatteryAttachment)
-        print("[Auto-Farm] Battery Grabbed!")
+        print("[Dragon Farm] Grab Remote Fired!")
         task.wait(0.5)
 
-        -- 2. Teleport to Crate and Deposit
-        print("[Auto-Farm] Moving to Deposit Crate...")
-        teleportTo(CrateAttachment.WorldCFrame)
-        task.wait(0.2)
+        -- 2. Fly to Crate
+        print("[Dragon Farm] Flying to Deposit Crate...")
+        flyTo(CrateAttachment.WorldCFrame)
+        task.wait(0.3)
 
+        -- Fire the deposit remote
         DepositRemote:FireServer(CrateAttachment)
-        print("[Auto-Farm] Battery Deposited!")
+        print("[Dragon Farm] Deposit Remote Fired!")
 
-        -- 3. Lock Position and Wait 3 Seconds (Bypass anti-rubberband/teleport back)
-        print("[Auto-Farm] Locking position for 3 seconds...")
-        toggleAnchor(true)
-        task.wait(3)
-        toggleAnchor(false)
-        
-        print("[Auto-Farm] Cycle complete. Restarting...")
-        task.wait(1) -- Safety delay between cycles
+        -- 3. Anchor, Wait, and Prevent Teleport-Back
+        print("[Dragon Farm] Locking position to bypass server check...")
+        setPositionLock(true)
+        task.wait(LOCK_TIME)
+        setPositionLock(false)
+
+        print("[Dragon Farm] Loop finished. Waiting for respawn...")
+        task.wait(2) -- Cooldown before next cycle
     end
 end
 
--- Start the script
-task.spawn(startAutomation)
+-- Start
+task.spawn(startDragonFarm)
