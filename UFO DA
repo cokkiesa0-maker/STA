@@ -1,0 +1,54 @@
+-- Services
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+
+local LocalPlayer = Players.LocalPlayer
+
+-- Remotes
+local Remotes = ReplicatedStorage:WaitForChild("Remotes")
+local GrabBatteryRemote = Remotes:WaitForChild("GrabBatteryRemote")
+local UseBatteryRemote = Remotes:WaitForChild("UseBatteryOnPowerCellRemote")
+
+-- Targets (From your provided paths)
+local BatteryAttachment = Workspace:WaitForChild("Terrain"):WaitForChild("BatterySpawnAttachment")
+local PowerCellAttachment = Workspace:WaitForChild("Interactions")
+    :WaitForChild("EventGalaxy")
+    :WaitForChild("PowerShipObjective")
+    :WaitForChild("PowerLineB")
+    :WaitForChild("BatteryDeposit_B")
+    :WaitForChild("BatteryDepositMesh")
+    :WaitForChild("ShipPowerCellAttachment")
+
+-- Function to safely teleport the player
+local function teleportTo(targetInstance)
+    local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+    local rootPart = character:WaitForChild("HumanoidRootPart")
+    
+    if rootPart and targetInstance then
+        -- Teleport slightly above the target to avoid clipping through the floor
+        rootPart.CFrame = targetInstance.WorldCFrame * CFrame.new(0, 2, 0)
+        task.wait(0.2) -- Small delay to allow physics/streaming to catch up
+    end
+end
+
+-- Main Automation Loop
+_G.AutoBattery = true -- Set to false in another script to stop it
+
+task.spawn(function()
+    while _G.AutoBattery do
+        -- 1. Teleport to Battery and Grab It
+        print("Teleporting to Battery...")
+        teleportTo(BatteryAttachment)
+        GrabBatteryRemote:FireServer(BatteryAttachment)
+        
+        task.wait(0.5) -- Delay between actions
+        
+        -- 2. Teleport to Power Cell and Deposit It
+        print("Teleporting to Power Cell...")
+        teleportTo(PowerCellAttachment)
+        UseBatteryRemote:FireServer(PowerCellAttachment)
+        
+        task.wait(1) -- Cooldown before repeating the cycle
+    end
+end)
