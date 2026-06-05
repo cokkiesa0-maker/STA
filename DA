@@ -1,57 +1,35 @@
---// Configuration
-local ESP_COLOR_BATTERY = Color3.fromRGB(0, 255, 255) -- Cyan
-local ESP_COLOR_DEPOSIT = Color3.fromRGB(255, 165, 0) -- Orange
+-- Get player and humanoid root part
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
 
---// Services
-local Terrain = workspace:WaitForChild("Terrain")
-local CoreGui = game:GetService("CoreGui")
+-- Define target attachments
+local batteryAttachment = workspace:WaitForChild("Terrain"):WaitForChild("BatterySpawnAttachment")
+local crateAttachment = workspace:WaitForChild("Terrain"):WaitForChild("EggCrateSpawnAttachment")
 
---// Targets
-local Battery = Terrain:WaitForChild("BatterySpawnAttachment")
-local EggCrate = Terrain:WaitForChild("EggCrateSpawnAttachment")
+-- Define remotes
+local grabRemote = game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("GrabBatteryRemote")
+local useRemote = game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("UseBatteryOnCrateRemote")
 
---// ESP Function
-local function createESP(target, name, color)
-    if not target then return end
-    
-    -- Target the parent Part if it's an attachment
-    local visualTarget = target:IsA("Attachment") and target.Parent or target
-    if not visualTarget:IsA("BasePart") then return end
-
-    -- Avoid duplicate ESP
-    if visualTarget:FindFirstChild("ESP_Highlight") then return end
-
-    -- Create Visual Highlight
-    local highlight = Instance.new("Highlight")
-    highlight.Name = "ESP_Highlight"
-    highlight.FillColor = color
-    highlight.FillTransparency = 0.5
-    highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
-    highlight.OutlineTransparency = 0.1
-    highlight.Adornee = visualTarget
-    highlight.Parent = visualTarget
-
-    -- Create 2D Billboard Text Label
-    local billboard = Instance.new("BillboardGui")
-    billboard.Name = "ESP_Billboard"
-    billboard.Size = UDim2.new(0, 200, 0, 50)
-    billboard.AlwaysOnTop = true
-    billboard.StudsOffset = Vector3.new(0, 3, 0)
-    billboard.Adornee = visualTarget
-    billboard.Parent = CoreGui
-
-    local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(1, 0, 1, 0)
-    label.BackgroundTransparency = 1
-    label.Text = name
-    label.TextColor3 = color
-    label.TextSize = 14
-    label.Font = Enum.Font.SourceSansBold
-    label.TextStrokeTransparency = 0
-    label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-    label.Parent = billboard
+-- Function to teleport and wait for character stability
+local function teleportTo(target)
+    humanoidRootPart.CFrame = target.CFrame + Vector3.new(0, 2, 0) -- Add height to avoid ground issues
+    task.wait(1) -- Wait for character to settle
 end
 
---// Run ESP
-createESP(Battery, "🔋 Battery", ESP_COLOR_BATTERY)
-createESP(EggCrate, "📥 Battery Deposit (Crate)", ESP_COLOR_DEPOSIT)
+-- Auto sequence
+while true do
+    -- Teleport to battery and grab
+    teleportTo(batteryAttachment)
+    grabRemote:FireServer(batteryAttachment)
+    task.wait(2) -- Wait for grab action to process
+
+    -- Teleport to crate and deposit
+    teleportTo(crateAttachment)
+    useRemote:FireServer(crateAttachment)
+    task.wait(3) -- Wait for deposit action to process
+
+    -- Wait before next cycle (adjust time as needed)
+    task.wait(5)
+end
