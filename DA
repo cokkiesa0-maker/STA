@@ -1,86 +1,71 @@
 -- Services
-local Workspace = game:GetService("Workspace")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Players = game:GetService("Players")
-local Random = Random.new()
+local players = game:GetService("Players")
+local replicatedStorage = game:GetService("ReplicatedStorage")
+local workspaceService = game:GetService("Workspace")
 
--- Player setup
-local player = Players.LocalPlayer
-local character = player.Character or player.CharacterAdded:Wait()
-local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
-local humanoid = character:WaitForChild("Humanoid")
+-- Remotes
+local remotes = replicatedStorage:WaitForChild("Remotes")
+local grabBatteryRemote = remotes:WaitForChild("GrabBatteryRemote")
+local useBatteryCrateRemote = remotes:WaitForChild("UseBatteryOnCrateRemote")
 
--- Remotes & Attachments
-local grabRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("GrabBatteryRemote")
-local useRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("UseBatteryOnCrateRemote")
+-- Attachments
+local terrain = workspaceService:WaitForChild("Terrain")
+local batteryAttachment = terrain:WaitForChild("BatterySpawnAttachment")
+local crateAttachment = terrain:WaitForChild("EggCrateSpawnAttachment")
 
-local batteryAttach = Workspace:WaitForChild("Terrain"):WaitForChild("BatterySpawnAttachment")
-local crateAttach = Workspace:WaitForChild("Terrain"):WaitForChild("EggCrateSpawnAttachment")
+-- Configuration
+local LOOP_DELAY = 0.3 
+local localPlayer = players.LocalPlayer
 
--- Settings
-local TELEPORT_OFFSET = Vector3.new(0, 2, 0)
-local BASE_DELAY = 1
-local MAX_STUCK_WAIT = 5
-local RANDOM_TELEPORT_CHANCE = 0.3 -- 30% chance to teleport randomly each cycle
-
--- State tracking
-local lastActionTime = os.clock()
-local currentTarget = batteryAttach
-
--- Safe teleport function
-local function teleport(target)
-    if humanoid.Health <= 0 or not humanoidRootPart then return end
-    -- Add small random offset to avoid getting stuck in same spot
-    local randomOffset = Vector3.new(Random:NextNumber(-1,1), 0, Random:NextNumber(-1,1))
-    humanoidRootPart.CFrame = target.WorldCFrame + TELEPORT_OFFSET + randomOffset
-    lastActionTime = os.clock()
-    wait(BASE_DELAY)
+-- Enhanced state check
+local function hasBattery()
+    local character = localPlayer.Character
+    if not character then return false end
+    
+    -- Check 1: Standard Instance/Tool check inside Character
+    if character:FindFirstChild("Battery") then return true end
+    
+    -- Check 2: Attribute check (Common for modern Roblox state tracking)
+    if character:GetAttribute("Battery") or character:GetAttribute("HasBattery") then
+        return true
+    end
+    
+    -- Check 3: Check LocalPlayer folder-based inventories if applicable
+    local values = localPlayer:FindFirstChild("Values") or localPlayer:FindFirstChild("leaderstats")
+    if values and values:FindFirstChild("Battery") and values.Battery.Value > 0 then
+        return true
+    end
+    
+    return false
 end
 
--- Random teleport fallback
-local function tryRandomTeleport()
-    if Random:NextNumber() <= RANDOM_TELEPORT_CHANCE then
-        print("Doing random teleport to fix sticking...")
-        -- Choose random target or a spot between them
-        local randomTarget = Random:NextBoolean() and batteryAttach or crateAttach
-        teleport(randomTarget)
+-- Safe Teleport
+local function teleportTo(attachment)
+    local character = localPlayer.Character
+    local rootPart = character and character:WaitForChild("HumanoidRootPart", 3)
+    
+    if rootPart and attachment then
+        rootPart.CFrame = CFrame.new(attachment.WorldPosition + Vector3.new(0, 2, 0))
+        return true
     end
+    return false
 end
 
--- MAIN LOOP
-while true do
-    wait(BASE_DELAY)
-
-    -- Check if stuck (no action for too long)
-    if os.clock() - lastActionTime > MAX_STUCK_WAIT then
-        print("Looks stuck - triggering fallback teleport!")
-        tryRandomTeleport()
-        -- Switch target to force movement
-        currentTarget = currentTarget == batteryAttach and crateAttach or batteryAttach
-        lastActionTime = os.clock()
-        continue
+-- Main Loop
+task.spawn(function()
+    while true do
+        if not hasBattery() then
+            if teleportTo(batteryAttachment) then
+                task.wait(0.1)
+                grabBatteryRemote:FireServer(batteryAttachment)
+            end
+        else
+            if teleportTo(crateAttachment) then
+                task.wait(0.1)
+                useBatteryCrateRemote:FireServer(crateAttachment)
+            end
+        end
+        
+        task.wait(LOOP_DELAY)
     end
-
-    -- Regular cycle with random chance to teleport
-    if Random:NextNumber() <= RANDOM_TELEPORT_CHANCE then
-        tryRandomTeleport()
-    end
-
-    -- Step 1: Go to battery & grab
-    print("Teleporting to battery...")
-    teleport(batteryAttach)
-    grabRemote:FireServer(batteryAttach)
-    wait(BASE_DELAY + Random:NextNumber(0.5, 1.5)) -- Random wait to avoid pattern
-
-    -- Step 2: Go to crate & deposit
-    print("Teleporting to crate...")
-    teleport(crateAttach)
-    useRemote:FireServer(crateAttach)
-    wait(BASE_DELAY + Random:NextNumber(0.5, 2)) -- Random wait between cycles
-
-    -- Extra random teleport at end of cycle sometimes
-    if Random:NextBoolean() then
-        tryRandomTeleport()
-    end
-end
-
+end)
