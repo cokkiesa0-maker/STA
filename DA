@@ -3,39 +3,49 @@ local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 
--- Player & Character References
+-- Player setup
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
 local humanoid = character:WaitForChild("Humanoid")
 
--- Remote Events
-local grabBatteryRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("GrabBatteryRemote")
-local useBatteryRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("UseBatteryOnCrateRemote")
+-- Remotes & Attachments (with extra checks)
+local grabRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("GrabBatteryRemote")
+local useRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("UseBatteryOnCrateRemote")
 
--- Attachment References
-local batteryAttachment = Workspace:WaitForChild("Terrain"):WaitForChild("BatterySpawnAttachment")
-local crateAttachment = Workspace:WaitForChild("Terrain"):WaitForChild("EggCrateSpawnAttachment")
+local batteryAttach = Workspace:WaitForChild("Terrain"):WaitForChild("BatterySpawnAttachment")
+local crateAttach = Workspace:WaitForChild("Terrain"):WaitForChild("EggCrateSpawnAttachment")
 
--- Configuration
-local TELEPORT_OFFSET = Vector3.new(0, 2, 0) -- Prevent getting stuck in ground
-local WAIT_AFTER_INTERACT = 2 -- Seconds to wait after each action
+-- Settings
+local TELEPORT_OFFSET = Vector3.new(0, 2, 0)
+local ACTION_DELAY = 1.5
+local LOOP_DELAY = 3
 
--- Function to Teleport Safely
-local function teleportTo(targetAttachment)
-    if humanoid.Health <= 0 then return end -- Don't act if player is dead
-    humanoidRootPart.CFrame = targetAttachment.WorldCFrame + TELEPORT_OFFSET
-    wait(1) -- Give time to finish teleporting
+-- Safe teleport function
+local function safeTeleport(target)
+    if not humanoidRootPart or humanoid.Health <= 0 then return false end
+    humanoidRootPart.CFrame = target.WorldCFrame + TELEPORT_OFFSET
+    wait(ACTION_DELAY) -- Longer wait to ensure teleport completes
+    return true
 end
 
--- Main Auto-Loop
-while wait(WAIT_AFTER_INTERACT) do
-    -- Step 1: Teleport to Battery & Grab
-    teleportTo(batteryAttachment)
-    grabBatteryRemote:FireServer(batteryAttachment) -- No need for unpack with single arg
-    
-    -- Step 2: Teleport to Crate & Deposit
-    teleportTo(crateAttachment)
-    useBatteryRemote:FireServer(crateAttachment, batteryAttachment) -- Send both refs if needed
+-- Main loop
+while true do
+    -- Step 1: Get battery
+    print("Teleporting to battery...")
+    if safeTeleport(batteryAttach) then
+        grabRemote:FireServer(batteryAttach)
+        print("Grabbed battery!")
+    end
+
+    -- Step 2: Go to deposit (separate wait to make sure it moves)
+    wait(ACTION_DELAY)
+    print("Teleporting to crate...")
+    if safeTeleport(crateAttach) then
+        useRemote:FireServer(crateAttach) -- Only send crate if that's what the remote needs
+        print("Deposited battery!")
+    end
+
+    wait(LOOP_DELAY) -- Wait before restarting
 end
 
