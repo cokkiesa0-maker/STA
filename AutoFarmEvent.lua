@@ -1,5 +1,5 @@
--- Auto Farm Event Script
--- Automatically teleports to batteries, grabs them, rides dragon to egg crates, and uses batteries to farm event rewards
+-- Auto Farm Event Script - FIXED
+-- Automatically teleports to batteries, grabs them, and uses them on egg crates
 
 print("=== AUTO FARM EVENT STARTED ===")
 
@@ -24,80 +24,28 @@ local success, err = pcall(function()
     
     print("Remotes loaded successfully")
     
-    -- Get terrain for spawn attachments
-    local Terrain = Workspace:WaitForChild("Terrain", 10)
-    
     -- Configuration
     local BATTERY_SPAWN_ATTACHMENT = "BatterySpawnAttachment"
     local EGG_CRATE_SPAWN_ATTACHMENT = "EggCrateSpawnAttachment"
-    local DELAY_BETWEEN_ACTIONS = 0.5 -- Delay between actions
-    local LOOP_DELAY = 2 -- Delay between farm cycles
-    local MAX_ITERATIONS = math.huge -- Run indefinitely
-    local TELEPORT_OFFSET = Vector3.new(0, 5, 0) -- Offset above the attachment point
+    local DELAY_BETWEEN_ACTIONS = 0.5
+    local LOOP_DELAY = 1
+    local MAX_ITERATIONS = math.huge
+    local TELEPORT_OFFSET = Vector3.new(0, 3, 0)
     
     local iteration = 0
-    local dragonMounted = false
     
-    -- Helper function to find and mount dragon
-    local function mountDragon()
-        print("Attempting to mount dragon...")
-        
-        local dragon = nil
-        
-        -- Search for dragon in workspace
-        for _, obj in pairs(Workspace:GetDescendants()) do
-            if obj:IsA("Model") and (obj.Name:lower():find("dragon") or obj.Name:lower():find("pet")) then
-                if obj:FindFirstChild("HumanoidRootPart") or obj:FindFirstChild("Humanoid") then
-                    dragon = obj
-                    break
-                end
-            end
-        end
-        
-        if dragon then
-            print("Dragon found: " .. dragon.Name)
-            local dragonRoot = dragon:FindFirstChild("HumanoidRootPart")
-            
-            if dragonRoot then
-                -- Teleport to dragon
-                HumanoidRootPart.CFrame = dragonRoot.CFrame + Vector3.new(0, 3, 0)
-                wait(0.3)
-                
-                -- Try to interact with mount remote if available
-                if Remotes:FindFirstChild("MountDragonRemote") then
-                    Remotes:FindFirstChild("MountDragonRemote"):FireServer(dragon)
-                    print("Mounted dragon via remote")
-                    dragonMounted = true
-                elseif Remotes:FindFirstChild("RideDragonRemote") then
-                    Remotes:FindFirstChild("RideDragonRemote"):FireServer(dragon)
-                    print("Mounted dragon via ride remote")
-                    dragonMounted = true
-                else
-                    -- Just position on the dragon
-                    print("Positioned on dragon (no mount remote found)")
-                    dragonMounted = true
-                end
-                
-                return true
-            end
-        else
-            print("Warning: Dragon not found in workspace")
-            return false
-        end
-    end
-    
-    -- Helper function to find attachment
-    local function findAttachment(attachmentName)
-        -- Try Terrain first
-        if Terrain:FindFirstChild(attachmentName) then
-            return Terrain:FindFirstChild(attachmentName)
-        end
-        
-        -- Search workspace
+    -- Helper function to find attachment or part in workspace
+    local function findObject(objectName)
+        -- Search workspace descendants
         for _, part in pairs(Workspace:GetDescendants()) do
-            if part.Name == attachmentName then
+            if part.Name == objectName then
                 return part
             end
+        end
+        
+        -- Also check direct children
+        if Workspace:FindFirstChild(objectName) then
+            return Workspace:FindFirstChild(objectName)
         end
         
         return nil
@@ -112,41 +60,52 @@ local success, err = pcall(function()
         -- Update character reference in case of respawn
         if not Character or not Character:FindFirstChild("HumanoidRootPart") then
             Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+            HumanoidRootPart = Character:WaitForChild("HumanoidRootPart", 10)
         end
         HumanoidRootPart = Character:FindFirstChild("HumanoidRootPart") or HumanoidRootPart
         
-        -- Step 1: Mount Dragon at start or if dismounted
-        if not dragonMounted then
-            local dragonSuccess, dragonErr = pcall(function()
-                mountDragon()
-                wait(0.5)
-            end)
-            
-            if not dragonSuccess then
-                print("Error mounting dragon: " .. tostring(dragonErr))
-            end
-        end
-        
-        -- Step 2: Teleport to Battery and Grab it
+        -- Step 1: Teleport to Battery and Grab it
         local success1, err1 = pcall(function()
-            print("Teleporting to battery...")
+            print("Finding battery...")
             
-            local batteryAttachment = findAttachment(BATTERY_SPAWN_ATTACHMENT)
-            if batteryAttachment then
+            local batteryObject = findObject(BATTERY_SPAWN_ATTACHMENT)
+            if not batteryObject then
+                -- Try to find battery spawn location or battery itself
+                batteryObject = findObject("Battery")
+                if not batteryObject then
+                    batteryObject = findObject("BatterySpawn")
+                end
+            end
+            
+            if batteryObject then
+                print("Battery found at: " .. batteryObject.Name)
+                
                 -- Teleport to battery location
-                local targetPosition = batteryAttachment.Position + TELEPORT_OFFSET
+                local targetPosition = batteryObject.Position + TELEPORT_OFFSET
                 HumanoidRootPart.CFrame = CFrame.new(targetPosition)
                 print("Teleported to battery")
-                wait(0.3)
+                wait(0.5)
                 
-                -- Grab battery
+                -- Grab battery - try different argument formats
                 print("Grabbing battery...")
-                local args = {batteryAttachment}
-                GrabBatteryRemote:FireServer(unpack(args))
-                print("Battery grabbed!")
+                
+                -- Try sending the battery object itself
+                if batteryObject:IsA("Attachment") then
+                    GrabBatteryRemote:FireServer(batteryObject)
+                elseif batteryObject:FindFirstChild("Attachment") then
+                    GrabBatteryRemote:FireServer(batteryObject:FindFirstChild("Attachment"))
+                else
+                    GrabBatteryRemote:FireServer(batteryObject)
+                end
+                
+                print("Battery remote fired!")
                 wait(DELAY_BETWEEN_ACTIONS)
             else
-                print("Warning: Battery attachment not found")
+                print("Warning: Battery not found - checking available objects")
+                -- List available objects for debugging
+                for _, child in pairs(Workspace:GetChildren()) do
+                    print("  Available: " .. child.Name)
+                end
             end
         end)
         
@@ -154,46 +113,46 @@ local success, err = pcall(function()
             print("Error grabbing battery: " .. tostring(err1))
         end
         
-        -- Step 3: Remount dragon if needed
-        if dragonMounted then
-            local remountSuccess, remountErr = pcall(function()
-                local dragon = nil
-                for _, obj in pairs(Workspace:GetDescendants()) do
-                    if obj:IsA("Model") and (obj.Name:lower():find("dragon") or obj.Name:lower():find("pet")) then
-                        if obj:FindFirstChild("HumanoidRootPart") then
-                            dragon = obj
-                            break
-                        end
-                    end
-                end
-                
-                if dragon then
-                    local dragonRoot = dragon:FindFirstChild("HumanoidRootPart")
-                    HumanoidRootPart.CFrame = dragonRoot.CFrame + Vector3.new(0, 3, 0)
-                    print("Repositioned on dragon")
-                end
-            end)
-        end
+        -- Small delay between actions
+        wait(0.3)
         
-        -- Step 4: Teleport to Egg Crate and Use Battery
+        -- Step 2: Teleport to Egg Crate and Use Battery
         local success2, err2 = pcall(function()
-            print("Teleporting to egg crate...")
+            print("Finding egg crate...")
             
-            local crateAttachment = findAttachment(EGG_CRATE_SPAWN_ATTACHMENT)
-            if crateAttachment then
+            local crateObject = findObject(EGG_CRATE_SPAWN_ATTACHMENT)
+            if not crateObject then
+                -- Try alternative names
+                crateObject = findObject("EggCrate")
+                if not crateObject then
+                    crateObject = findObject("CrateSpawn")
+                end
+            end
+            
+            if crateObject then
+                print("Egg crate found at: " .. crateObject.Name)
+                
                 -- Teleport to crate location
-                local targetPosition = crateAttachment.Position + TELEPORT_OFFSET
+                local targetPosition = crateObject.Position + TELEPORT_OFFSET
                 HumanoidRootPart.CFrame = CFrame.new(targetPosition)
                 print("Teleported to egg crate")
-                wait(0.3)
+                wait(0.5)
                 
-                -- Use battery on crate
+                -- Use battery on crate - try different argument formats
                 print("Using battery on egg crate...")
-                local args = {crateAttachment}
-                UseBatteryOnCrateRemote:FireServer(unpack(args))
+                
+                if crateObject:IsA("Attachment") then
+                    UseBatteryOnCrateRemote:FireServer(crateObject)
+                elseif crateObject:FindFirstChild("Attachment") then
+                    UseBatteryOnCrateRemote:FireServer(crateObject:FindFirstChild("Attachment"))
+                else
+                    UseBatteryOnCrateRemote:FireServer(crateObject)
+                end
+                
                 print("Battery used on crate!")
+                wait(DELAY_BETWEEN_ACTIONS)
             else
-                print("Warning: Egg crate attachment not found")
+                print("Warning: Egg crate not found")
             end
         end)
         
@@ -216,4 +175,14 @@ if not success then
     print("Error: " .. tostring(err))
     print("Traceback:")
     print(debug.traceback())
+    
+    -- Additional debugging
+    print("\n=== DEBUGGING INFO ===")
+    local Remotes = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
+    if Remotes then
+        print("Remotes found. Contents:")
+        for _, remote in pairs(Remotes:GetChildren()) do
+            print("  - " .. remote.Name)
+        end
+    end
 end
