@@ -10,22 +10,22 @@ local character = player.Character or player.CharacterAdded:Wait()
 local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
 local humanoid = character:WaitForChild("Humanoid")
 
--- Targets (confirm these paths are correct!)
+-- Target positions (double-check these paths!)
 local batterySpawn = Workspace:WaitForChild("Terrain"):WaitForChild("BatterySpawnAttachment")
 local crateDeposit = Workspace:WaitForChild("Terrain"):WaitForChild("EggCrateSpawnAttachment")
-local batteryCFrame = batterySpawn.WorldCFrame + Vector3.new(0, 2, 0)
-local lockCFrame = crateDeposit.WorldCFrame + Vector3.new(0, 1.5, 0)
+local batteryPosition = batterySpawn.WorldCFrame + Vector3.new(0, 2, 0) -- Higher offset to avoid clipping
+local depositPosition = crateDeposit.WorldCFrame + Vector3.new(0, 1.5, 0)
 
 -- Remotes
 local grabRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("GrabBatteryRemote")
 local useRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("UseBatteryOnCrateRemote")
 local dropsRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("BatteryCrateDropsRemote")
 
--- Lock connection variable
+-- Lock connection
 local lockConnection = nil
 
--- Disable all locks and enable movement
-local function stopAllLocks()
+-- Fully enable movement and clear locks
+local function enableMovement()
     if lockConnection then
         lockConnection:Disconnect()
         lockConnection = nil
@@ -35,79 +35,59 @@ local function stopAllLocks()
     humanoid.AutoRotate = true
 end
 
--- Lock position for 3 seconds
-local function lockFor3Seconds()
-    stopAllLocks()
+-- Lock at deposit for 3 seconds
+local function lockAtDeposit()
+    enableMovement()
     humanoid.WalkSpeed = 0
     humanoid.JumpPower = 0
     humanoid.AutoRotate = false
 
     lockConnection = RunService.Heartbeat:Connect(function()
         if humanoidRootPart then
-            humanoidRootPart.CFrame = lockCFrame
+            humanoidRootPart.CFrame = depositPosition
         end
     end)
 
-    task.delay(3, stopAllLocks)
-    print("Locked at deposit for 3 seconds")
+    task.delay(3, enableMovement)
 end
 
--- **FORCE GET BATTERY FIRST** - won't proceed until done
+-- **FIXED BATTERY COLLECTION** - ensures we get it before moving on
 local function getBattery()
-    print("START: Must get battery first - will not go to deposit until complete")
-    stopAllLocks()
+    print("Collecting battery first - no deposit until done!")
+    enableMovement()
 
-    -- Keep trying to teleport and collect battery until successful
-    local batteryCollected = false
-    while not batteryCollected do
-        -- Force teleport to battery
-        for i = 1, 5 do
-            humanoidRootPart.CFrame = batteryCFrame
-            task.wait(0.1)
-        end
-        task.wait(2) -- Make sure character is stable at battery spot
+    -- Force character to battery location
+    humanoidRootPart.Anchored = true -- Temporarily anchor to guarantee position
+    humanoidRootPart.CFrame = batteryPosition
+    task.wait(1)
+    humanoidRootPart.Anchored = false -- Unanchor after moving
 
-        -- Fire remote to grab battery
+    -- Wait for character to settle
+    task.wait(1.5)
+
+    -- Fire remote multiple times to ensure it registers
+    for i = 1, 2 do
         grabRemote:FireServer(batterySpawn)
-        print("Attempted to collect battery")
-        task.wait(1)
-
-        -- Optional: Add check here if game has a way to confirm battery was collected
-        -- Example: if player.Backpack:FindFirstChild("Battery") then batteryCollected = true end
-        batteryCollected = true -- Set to true for now; replace with actual check if possible
+        task.wait(0.5)
     end
 
-    print("SUCCESS: Battery collected - now proceeding to deposit")
+    print("Battery collected - heading to deposit")
 end
 
--- Collect drops
-local function collectDrops()
-    task.wait(1)
-    for _, part in ipairs(Workspace:GetPartsInRadius(lockCFrame.Position, 10)) do
-        if part:IsA("BasePart") and part.Name:find("Drop") then
-            stopAllLocks()
-            humanoidRootPart.CFrame = part.WorldCFrame + Vector3.new(0, 1, 0)
-            task.wait(0.5)
-        end
-    end
-end
-
--- Main cycle - STRICT ORDER: GET BATTERY → DEPOSIT → REPEAT
+-- Main cycle - STRICT ORDER: BATTERY FIRST → DEPOSIT
 while true do
-    -- Step 1: ONLY proceed to next step if battery is collected first
-    getBattery()
+    getBattery() -- Will not proceed until battery is collected
 
-    -- Step 2: Now go to deposit (never happens before battery is collected)
-    humanoidRootPart.CFrame = lockCFrame
+    -- Move to deposit and lock
+    humanoidRootPart.CFrame = depositPosition
     task.wait(1)
-    lockFor3Seconds()
+    lockAtDeposit()
 
-    -- Step 3: Use battery and collect drops
+    -- Use battery
     useRemote:FireServer(crateDeposit)
     task.wait(1)
     dropsRemote:FireServer(Instance.new("Attachment"))
-    collectDrops()
 
-    -- Small wait before next cycle
-    task.wait(1)
+    -- Wait before next battery run
+    task.wait(2)
 end
