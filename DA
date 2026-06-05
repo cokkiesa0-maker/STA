@@ -1,243 +1,41 @@
--- CONFIGURABLE SETTINGS (ADJUST AS NEEDED)
-local TELEPORT_OFFSET = Vector3.new(0, 2, 0) -- Prevents ground clipping
-local GRAB_DELAY = 0.4 -- Prevents remote spam
-local DEPOSIT_DELAY = 0.4
-local POST_DEPOSIT_WAIT = 3 -- Exact lock time at deposit
-local RETRY_DELAY = 1.2 -- Wait before retrying failed actions
-local VALIDATION_WAIT = 0.6 -- Time for game to update state after actions
-
--- SERVICES
-local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
+-- Services
 local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
 
--- SAFETY CHECKS FOR REQUIRED OBJECTS (WITH TIMEOUTS)
-local RemotesFolder
-local GrabBatteryRemote
-local UseBatteryOnCrateRemote
-local Terrain
-local BatterySpawnAttachment
-local EggCrateSpawnAttachment
+-- Player & Character References
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
+local humanoid = character:WaitForChild("Humanoid")
 
--- Wait for all critical objects to load
-local function waitForObjects()
-    print("Loading required game objects...")
-    
-    RemotesFolder = ReplicatedStorage:WaitForChild("Remotes", 60)
-    assert(RemotesFolder, "Remotes folder not found after 60 seconds!")
-    
-    GrabBatteryRemote = RemotesFolder:WaitForChild("GrabBatteryRemote", 30)
-    assert(GrabBatteryRemote, "GrabBatteryRemote not found!")
-    
-    UseBatteryOnCrateRemote = RemotesFolder:WaitForChild("UseBatteryOnCrateRemote", 30)
-    assert(UseBatteryOnCrateRemote, "UseBatteryOnCrateRemote not found!")
-    
-    Terrain = Workspace:WaitForChild("Terrain", 30)
-    assert(Terrain, "Terrain not found!")
-    
-    BatterySpawnAttachment = Terrain:WaitForChild("BatterySpawnAttachment", 30)
-    assert(BatterySpawnAttachment, "BatterySpawnAttachment not found!")
-    
-    EggCrateSpawnAttachment = Terrain:WaitForChild("EggCrateSpawnAttachment", 30)
-    assert(EggCrateSpawnAttachment, "EggCrateSpawnAttachment not found!")
-    
-    print("All objects loaded successfully!")
-end
+-- Remote Events
+local grabBatteryRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("GrabBatteryRemote")
+local useBatteryRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("UseBatteryOnCrateRemote")
 
--- PLAYER & CHARACTER MANAGEMENT
-local LocalPlayer = Players.LocalPlayer
-assert(LocalPlayer, "LocalPlayer not found!")
+-- Attachment References
+local batteryAttachment = Workspace:WaitForChild("Terrain"):WaitForChild("BatterySpawnAttachment")
+local crateAttachment = Workspace:WaitForChild("Terrain"):WaitForChild("EggCrateSpawnAttachment")
 
-local Character
-local HumanoidRootPart
-local Humanoid
+-- Configuration
+local TELEPORT_OFFSET = Vector3.new(0, 2, 0) -- Prevent getting stuck in ground
+local WAIT_AFTER_INTERACT = 2 -- Seconds to wait after each action
 
-local function getValidCharacter()
-    if Character and Humanoid and Humanoid.Health > 0 and HumanoidRootPart then
-        return true
-    end
-    
-    print("Waiting for valid character...")
-    Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-    Humanoid = Character:WaitForChild("Humanoid", 15)
-    HumanoidRootPart = Character:WaitForChild("HumanoidRootPart", 15)
-    
-    assert(Humanoid, "Humanoid not found!")
-    assert(HumanoidRootPart, "HumanoidRootPart not found!")
-    print("Character ready!")
-    return true
-end
-
--- BATTERY DETECTION (FIXED & RELIABLE)
--- This function will check ALL common locations - adjust names if needed
-local BATTERY_NAMES = {"Battery", "PowerBattery", "BatteryItem", "EnergyCell"}
-local BATTERY_ATTRIBUTE = "HasBattery"
-local BATTERY_VALUE_NAME = "BatteryCount"
-
-local function hasBattery()
-    -- Check 1: Tool in Backpack or Character
-    for _, name in ipairs(BATTERY_NAMES) do
-        if LocalPlayer.Backpack:FindFirstChild(name) then
-            print("Battery found in Backpack:", name)
-            return true
-        end
-        if Character and Character:FindFirstChild(name) then
-            print("Battery found on Character:", name)
-            return true
-        end
-    end
-    
-    -- Check 2: Player Attribute
-    if LocalPlayer:GetAttribute(BATTERY_ATTRIBUTE) then
-        print("Battery detected via attribute")
-        return true
-    end
-    
-    -- Check 3: Player Value Object (Bool or Number)
-    local batteryValue = LocalPlayer:FindFirstChild(BATTERY_VALUE_NAME)
-    if batteryValue then
-        if batteryValue:IsA("BoolValue") and batteryValue.Value then
-            print("Battery detected via BoolValue")
-            return true
-        end
-        if batteryValue:IsA("IntValue") and batteryValue.Value > 0 then
-            print("Battery detected via IntValue")
-            return true
-        end
-    end
-    
-    -- Check 4: Equipped Tool via Humanoid
-    local equippedTool = Humanoid:GetAttribute("EquippedTool")
-    if equippedTool then
-        for _, name in ipairs(BATTERY_NAMES) do
-            if equippedTool == name then
-                print("Battery detected as equipped tool")
-                return true
-            end
-        end
-    end
-    
-    -- No battery found
-    print("No battery detected")
-    return false
-end
-
--- TELEPORT FUNCTION (FIXED & SAFE)
+-- Function to Teleport Safely
 local function teleportTo(targetAttachment)
-    if not getValidCharacter() then return false end
-    
-    -- Ensure target is valid
-    if not targetAttachment or not targetAttachment:IsA("Attachment") then
-        print("Invalid teleport target!")
-        return false
-    end
-    
-    -- Teleport with offset
-    HumanoidRootPart.CFrame = targetAttachment.WorldCFrame + TELEPORT_OFFSET
-    task.wait(0.2) -- Let game register new position
-    print("Teleported to:", targetAttachment.Name)
-    return true
+    if humanoid.Health <= 0 then return end -- Don't act if player is dead
+    humanoidRootPart.CFrame = targetAttachment.WorldCFrame + TELEPORT_OFFSET
+    wait(1) -- Give time to finish teleporting
 end
 
--- MAIN FARMING LOOP
-local function startFarming()
-    -- Load all required objects first
-    waitForObjects()
+-- Main Auto-Loop
+while wait(WAIT_AFTER_INTERACT) do
+    -- Step 1: Teleport to Battery & Grab
+    teleportTo(batteryAttachment)
+    grabBatteryRemote:FireServer(batteryAttachment) -- No need for unpack with single arg
     
-    print("Starting battery farming...")
-    while true do
-        -- PHASE 1: GET BATTERY
-        local batteryAcquired = false
-        print("\n--- Attempting to get battery ---")
-        
-        while not batteryAcquired do
-            -- Get valid character first
-            if not getValidCharacter() then
-                task.wait(RETRY_DELAY)
-                continue
-            end
-            
-            -- Teleport to battery spawn
-            if not teleportTo(BatterySpawnAttachment) then
-                task.wait(RETRY_DELAY)
-                continue
-            end
-            
-            -- Fire grab remote with safety
-            task.wait(GRAB_DELAY)
-            local grabSuccess, grabError = pcall(function()
-                GrabBatteryRemote:FireServer(BatterySpawnAttachment)
-            end)
-            
-            if grabSuccess then
-                print("Grab remote fired successfully")
-                task.wait(VALIDATION_WAIT) -- Give game time to process pickup
-                batteryAcquired = hasBattery()
-            else
-                print("Failed to fire grab remote:", grabError)
-            end
-            
-            -- Retry if failed
-            if not batteryAcquired then
-                print("Retrying battery pickup...")
-                task.wait(RETRY_DELAY)
-            end
-        end
-        
-        -- PHASE 2: DEPOSIT BATTERY
-        print("\n--- Attempting to deposit battery ---")
-        local batteryDeposited = false
-        
-        while not batteryDeposited do
-            -- Get valid character first
-            if not getValidCharacter() then
-                task.wait(RETRY_DELAY)
-                continue
-            end
-            
-            -- Teleport to deposit location (ONLY if battery is acquired)
-            if not teleportTo(EggCrateSpawnAttachment) then
-                task.wait(RETRY_DELAY)
-                continue
-            end
-            
-            -- Fire deposit remote with safety
-            task.wait(DEPOSIT_DELAY)
-            local depositSuccess, depositError = pcall(function()
-                UseBatteryOnCrateRemote:FireServer(EggCrateSpawnAttachment)
-            end)
-            
-            if depositSuccess then
-                print("Deposit remote fired successfully")
-                task.wait(VALIDATION_WAIT) -- Give game time to process deposit
-                batteryDeposited = not hasBattery()
-            else
-                print("Failed to fire deposit remote:", depositError)
-            end
-            
-            -- Retry if failed
-            if not batteryDeposited then
-                print("Retrying battery deposit...")
-                task.wait(RETRY_DELAY)
-            end
-        end
-        
-        -- LOCK POSITION FOR EXACT 3 SECONDS
-        print("\nBattery deposited! Locking position for " .. POST_DEPOSIT_WAIT .. " seconds...")
-        if getValidCharacter() then
-            -- Stop any movement
-            Humanoid:MoveTo(HumanoidRootPart.Position)
-        end
-        task.wait(POST_DEPOSIT_WAIT)
-        
-        -- REPEAT LOOP
-        print("--- Restarting cycle ---")
-    end
-end
-
--- START THE SCRIPT
-local success, errorMsg = pcall(startFarming)
-if not success then
-    print("Script failed to run:", errorMsg)
+    -- Step 2: Teleport to Crate & Deposit
+    teleportTo(crateAttachment)
+    useBatteryRemote:FireServer(crateAttachment, batteryAttachment) -- Send both refs if needed
 end
 
