@@ -31,9 +31,9 @@ local success, err = pcall(function()
     local LOOP_DELAY = 1
     local MAX_ITERATIONS = math.huge
     local TELEPORT_OFFSET = Vector3.new(0, 3, 0)
-    local BATTERY_DEPOSIT_WAIT = math.random(3, 5) -- Random wait between 3-5 seconds after depositing battery
     
     local iteration = 0
+    local batteryGrabbed = false
     
     -- Helper function to find attachment or part in workspace
     local function findObject(objectName)
@@ -65,104 +65,115 @@ local success, err = pcall(function()
         end
         HumanoidRootPart = Character:FindFirstChild("HumanoidRootPart") or HumanoidRootPart
         
-        -- Step 1: Teleport to Battery and Grab it
-        local success1, err1 = pcall(function()
-            print("Finding battery...")
-            
-            local batteryObject = findObject(BATTERY_SPAWN_ATTACHMENT)
-            if not batteryObject then
-                -- Try to find battery spawn location or battery itself
-                batteryObject = findObject("Battery")
-                if not batteryObject then
-                    batteryObject = findObject("BatterySpawn")
-                end
-            end
-            
-            if batteryObject then
-                print("Battery found at: " .. batteryObject.Name)
-                
-                -- Teleport to battery location
-                local targetPosition = batteryObject.Position + TELEPORT_OFFSET
-                HumanoidRootPart.CFrame = CFrame.new(targetPosition)
-                print("Teleported to battery")
-                wait(0.3)
-                
-                -- Grab battery - try different argument formats
-                print("Grabbing battery...")
-                
-                -- Try sending the battery object itself
-                if batteryObject:IsA("Attachment") then
-                    GrabBatteryRemote:FireServer(batteryObject)
-                elseif batteryObject:FindFirstChild("Attachment") then
-                    GrabBatteryRemote:FireServer(batteryObject:FindFirstChild("Attachment"))
-                else
-                    GrabBatteryRemote:FireServer(batteryObject)
-                end
-                
-                print("Battery grabbed! Instantly teleporting to deposit...")
-                
-            else
-                print("Warning: Battery not found - checking available objects")
-                -- List available objects for debugging
-                for _, child in pairs(Workspace:GetChildren()) do
-                    print("  Available: " .. child.Name)
-                end
-            end
-        end)
+        -- Reset battery grabbed flag at start of cycle
+        batteryGrabbed = false
         
-        if not success1 then
-            print("Error grabbing battery: " .. tostring(err1))
+        -- Step 1: Teleport to Battery and Grab it
+        if not batteryGrabbed then
+            local success1, err1 = pcall(function()
+                print("Finding battery...")
+                
+                local batteryObject = findObject(BATTERY_SPAWN_ATTACHMENT)
+                if not batteryObject then
+                    -- Try to find battery spawn location or battery itself
+                    batteryObject = findObject("Battery")
+                    if not batteryObject then
+                        batteryObject = findObject("BatterySpawn")
+                    end
+                end
+                
+                if batteryObject then
+                    print("Battery found at: " .. batteryObject.Name)
+                    
+                    -- Teleport to battery location
+                    local targetPosition = batteryObject.Position + TELEPORT_OFFSET
+                    HumanoidRootPart.CFrame = CFrame.new(targetPosition)
+                    print("Teleported to battery")
+                    wait(0.3)
+                    
+                    -- Grab battery - try different argument formats
+                    print("Grabbing battery...")
+                    
+                    -- Try sending the battery object itself
+                    if batteryObject:IsA("Attachment") then
+                        GrabBatteryRemote:FireServer(batteryObject)
+                    elseif batteryObject:FindFirstChild("Attachment") then
+                        GrabBatteryRemote:FireServer(batteryObject:FindFirstChild("Attachment"))
+                    else
+                        GrabBatteryRemote:FireServer(batteryObject)
+                    end
+                    
+                    print("Battery grabbed! Marking as grabbed and preparing to deposit...")
+                    batteryGrabbed = true
+                    
+                else
+                    print("Warning: Battery not found - checking available objects")
+                    -- List available objects for debugging
+                    for _, child in pairs(Workspace:GetChildren()) do
+                        print("  Available: " .. child.Name)
+                    end
+                end
+            end)
+            
+            if not success1 then
+                print("Error grabbing battery: " .. tostring(err1))
+            end
         end
         
-        -- Step 2: INSTANT Teleport to Egg Crate and Use Battery (NO DELAY)
-        local success2, err2 = pcall(function()
-            print("Finding egg crate...")
-            
-            local crateObject = findObject(EGG_CRATE_SPAWN_ATTACHMENT)
-            if not crateObject then
-                -- Try alternative names
-                crateObject = findObject("EggCrate")
+        -- Step 2: If battery was grabbed, INSTANTLY teleport to deposit (NO MORE BATTERY SEARCHING)
+        if batteryGrabbed then
+            local success2, err2 = pcall(function()
+                print("Battery is grabbed! Finding egg crate deposit...")
+                
+                local crateObject = findObject(EGG_CRATE_SPAWN_ATTACHMENT)
                 if not crateObject then
-                    crateObject = findObject("CrateSpawn")
+                    -- Try alternative names
+                    crateObject = findObject("EggCrate")
+                    if not crateObject then
+                        crateObject = findObject("CrateSpawn")
+                    end
                 end
-            end
-            
-            if crateObject then
-                print("Egg crate found at: " .. crateObject.Name)
                 
-                -- INSTANT Teleport to crate location (no wait)
-                local targetPosition = crateObject.Position + TELEPORT_OFFSET
-                HumanoidRootPart.CFrame = CFrame.new(targetPosition)
-                print("Instantly teleported to egg crate")
-                wait(0.1) -- Minimal delay for server sync
-                
-                -- Use battery on crate - try different argument formats
-                print("Using battery on egg crate...")
-                
-                if crateObject:IsA("Attachment") then
-                    UseBatteryOnCrateRemote:FireServer(crateObject)
-                elseif crateObject:FindFirstChild("Attachment") then
-                    UseBatteryOnCrateRemote:FireServer(crateObject:FindFirstChild("Attachment"))
+                if crateObject then
+                    print("Egg crate found at: " .. crateObject.Name)
+                    
+                    -- INSTANT Teleport to crate location (no wait)
+                    local targetPosition = crateObject.Position + TELEPORT_OFFSET
+                    HumanoidRootPart.CFrame = CFrame.new(targetPosition)
+                    print("Instantly teleported to egg crate deposit")
+                    wait(0.1) -- Minimal delay for server sync
+                    
+                    -- Use battery on crate - try different argument formats
+                    print("Using battery on egg crate...")
+                    
+                    if crateObject:IsA("Attachment") then
+                        UseBatteryOnCrateRemote:FireServer(crateObject)
+                    elseif crateObject:FindFirstChild("Attachment") then
+                        UseBatteryOnCrateRemote:FireServer(crateObject:FindFirstChild("Attachment"))
+                    else
+                        UseBatteryOnCrateRemote:FireServer(crateObject)
+                    end
+                    
+                    print("Battery deposited on crate!")
+                    wait(DELAY_BETWEEN_ACTIONS)
+                    
+                    -- Wait 3-5 seconds after depositing battery
+                    local waitTime = math.random(30, 50) / 10 -- Random between 3.0 and 5.0 seconds
+                    print("Waiting " .. tostring(waitTime) .. " seconds for battery to process...")
+                    wait(waitTime)
+                    print("Wait time complete, ready for next cycle...")
+                    
+                    -- Mark battery as no longer grabbed for next cycle
+                    batteryGrabbed = false
+                    
                 else
-                    UseBatteryOnCrateRemote:FireServer(crateObject)
+                    print("Warning: Egg crate not found")
                 end
-                
-                print("Battery deposited on crate!")
-                wait(DELAY_BETWEEN_ACTIONS)
-                
-                -- Wait 3-5 seconds after depositing battery
-                local waitTime = math.random(30, 50) / 10 -- Random between 3.0 and 5.0 seconds
-                print("Waiting " .. tostring(waitTime) .. " seconds for battery to process...")
-                wait(waitTime)
-                print("Wait time complete, starting next cycle...")
-                
-            else
-                print("Warning: Egg crate not found")
+            end)
+            
+            if not success2 then
+                print("Error using battery on crate: " .. tostring(err2))
             end
-        end)
-        
-        if not success2 then
-            print("Error using battery on crate: " .. tostring(err2))
         end
         
         -- Wait before next iteration
