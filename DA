@@ -2,7 +2,6 @@
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
 
 -- Player setup
 local player = Players.LocalPlayer
@@ -10,84 +9,55 @@ local character = player.Character or player.CharacterAdded:Wait()
 local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
 local humanoid = character:WaitForChild("Humanoid")
 
--- Target positions (double-check these paths!)
+-- **CONFIRM THESE PATHS IN EXPLORER FIRST!**
 local batterySpawn = Workspace:WaitForChild("Terrain"):WaitForChild("BatterySpawnAttachment")
 local crateDeposit = Workspace:WaitForChild("Terrain"):WaitForChild("EggCrateSpawnAttachment")
-local batteryPosition = batterySpawn.WorldCFrame + Vector3.new(0, 2, 0) -- Higher offset to avoid clipping
-local depositPosition = crateDeposit.WorldCFrame + Vector3.new(0, 1.5, 0)
 
--- Remotes
+-- **CONFIRM REMOTE NAMES ARE EXACT!**
 local grabRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("GrabBatteryRemote")
 local useRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("UseBatteryOnCrateRemote")
 local dropsRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("BatteryCrateDropsRemote")
 
--- Lock connection
-local lockConnection = nil
-
--- Fully enable movement and clear locks
-local function enableMovement()
-    if lockConnection then
-        lockConnection:Disconnect()
-        lockConnection = nil
-    end
+-- Force move character to a position
+local function moveTo(pos)
     humanoid.WalkSpeed = 16
-    humanoid.JumpPower = 50
-    humanoid.AutoRotate = true
+    humanoidRootPart.CFrame = pos + Vector3.new(0, 2, 0) -- Add height to avoid issues
+    task.wait(2) -- Wait for server to register position
 end
 
--- Lock at deposit for 3 seconds
-local function lockAtDeposit()
-    enableMovement()
-    humanoid.WalkSpeed = 0
-    humanoid.JumpPower = 0
-    humanoid.AutoRotate = false
-
-    lockConnection = RunService.Heartbeat:Connect(function()
-        if humanoidRootPart then
-            humanoidRootPart.CFrame = depositPosition
-        end
-    end)
-
-    task.delay(3, enableMovement)
-end
-
--- **FIXED BATTERY COLLECTION** - ensures we get it before moving on
-local function getBattery()
-    print("Collecting battery first - no deposit until done!")
-    enableMovement()
-
-    -- Force character to battery location
-    humanoidRootPart.Anchored = true -- Temporarily anchor to guarantee position
-    humanoidRootPart.CFrame = batteryPosition
+-- **FIXED: Test remotes with/without arguments**
+local function collectBattery()
+    print("Moving to battery...")
+    moveTo(batterySpawn.WorldCFrame.Position)
+    
+    print("Trying to grab battery (with and without arguments)...")
+    -- Try both ways - some remotes don't need arguments
+    grabRemote:FireServer() 
+    task.wait(0.5)
+    grabRemote:FireServer(batterySpawn)
     task.wait(1)
-    humanoidRootPart.Anchored = false -- Unanchor after moving
-
-    -- Wait for character to settle
-    task.wait(1.5)
-
-    -- Fire remote multiple times to ensure it registers
-    for i = 1, 2 do
-        grabRemote:FireServer(batterySpawn)
-        task.wait(0.5)
-    end
-
-    print("Battery collected - heading to deposit")
 end
 
--- Main cycle - STRICT ORDER: BATTERY FIRST → DEPOSIT
-while true do
-    getBattery() -- Will not proceed until battery is collected
-
-    -- Move to deposit and lock
-    humanoidRootPart.CFrame = depositPosition
-    task.wait(1)
-    lockAtDeposit()
-
-    -- Use battery
+local function depositBattery()
+    print("Moving to deposit...")
+    moveTo(crateDeposit.WorldCFrame.Position)
+    
+    print("Trying to deposit battery (with and without arguments)...")
+    -- Try both ways for deposit too
+    useRemote:FireServer()
+    task.wait(0.5)
     useRemote:FireServer(crateDeposit)
     task.wait(1)
+    
+    -- Trigger drops (try with/without attachment)
+    dropsRemote:FireServer()
+    task.wait(0.5)
     dropsRemote:FireServer(Instance.new("Attachment"))
+end
 
-    -- Wait before next battery run
-    task.wait(2)
+-- Main loop - battery FIRST, then deposit
+while true do
+    collectBattery()
+    depositBattery()
+    task.wait(3) -- Adjust wait time as needed
 end
