@@ -1,12 +1,11 @@
--- Wrap everything in a protected call so you can see the error in the Developer Console (F9) if it fails
 local success, err = pcall(function()
     
     local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
-    -- Create Window
+    -- Create Window with clean integer parameters
     local Window = Rayfield:CreateWindow({
         Name = "Battery Automation Hub",
-        Icon = "rbxassetid://0", -- Explicitly formatted string icon to prevent library script errors
+        Icon = 0, -- 0 completely bypasses the icon loading step
         LoadingTitle = "Loading Script Suite...",
         LoadingSubtitle = "Ready",
         ConfigurationSaving = {
@@ -30,17 +29,11 @@ local success, err = pcall(function()
     local players = game:GetService("Players")
     local localPlayer = players.LocalPlayer
 
-    -- Check for Remotes Folder (Using a fallback in case folders are structured differently)
+    -- Dynamic validation checks
     local remotes = replicatedStorage:WaitForChild("Remotes", 5)
-    if not remotes then 
-        warn("Could not find 'Remotes' folder in ReplicatedStorage!")
-        return 
-    end
+    local grabBatteryRemote = remotes and remotes:WaitForChild("GrabBatteryRemote", 5)
+    local useBatteryRemote = remotes and remotes:WaitForChild("UseBatteryOnCrateRemote", 5)
 
-    local grabBatteryRemote = remotes:WaitForChild("GrabBatteryRemote", 5)
-    local useBatteryRemote = remotes:WaitForChild("UseBatteryOnCrateRemote", 5)
-
-    -- Check for Workspace Items
     local terrain = workspace:WaitForChild("Terrain", 5)
     local batteryAttachment = terrain and terrain:WaitForChild("BatterySpawnAttachment", 5)
     local eggCrateAttachment = terrain and terrain:WaitForChild("EggCrateSpawnAttachment", 5)
@@ -48,7 +41,7 @@ local success, err = pcall(function()
     -- ==========================================
     -- TAB 1: AUTOMATION
     -- ==========================================
-    local AutomationTab = Window:CreateTab("Automation", "rbxassetid://0") 
+    local AutomationTab = Window:CreateTab("Automation", 0) 
     AutomationTab:CreateSection("Battery Loops")
 
     -- Toggle 1: Auto Farm Loop
@@ -99,7 +92,7 @@ local success, err = pcall(function()
     -- ==========================================
     -- TAB 2: TELEPORTS
     -- ==========================================
-    local TeleportTab = Window:CreateTab("Teleports", "rbxassetid://0")
+    local TeleportTab = Window:CreateTab("Teleports", 0)
     TeleportTab:CreateSection("Movement Toggles")
 
     -- Toggle 2: Auto Teleport Loop
@@ -154,7 +147,6 @@ local success, err = pcall(function()
 
 end)
 
--- Output the error if it fails to execute
 if not success then
-    warn("Script failure reason: " .. tostring(err))
+    warn("UI Execution Error log: " .. tostring(err))
 end
