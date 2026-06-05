@@ -1,386 +1,167 @@
 -- ==========================================
--- ENHANCED ERROR HANDLING & DEBUGGING
+-- BATTERY AUTOMATION HUB - MINIMAL VERSION
 -- ==========================================
-local DEBUG_MODE = true
 
-local function debugLog(message)
-    if DEBUG_MODE then
-        print("[DEBUG] " .. tostring(message))
-    end
-end
+print("[INIT] Script starting...")
 
-local function errorLog(message)
-    print("[ERROR] " .. tostring(message))
-    warn("[ERROR] " .. tostring(message))
-end
-
--- ==========================================
--- LOAD RAYFIELD WITH FALLBACK
--- ==========================================
-local Rayfield
-local rayFieldLoaded = false
-local Window = nil
-
-local success, err = pcall(function()
-    debugLog("Attempting to load Rayfield UI Library...")
+-- Defensive wrapper around entire script
+local function safeExecute()
+    print("[INIT] Entering safe execute...")
     
-    local rayFieldSuccess, rayFieldErr = pcall(function()
-        debugLog("Fetching Rayfield from URL...")
-        local response = game:HttpGet('https://sirius.menu/rayfield')
-        if response and response ~= "" then
-            debugLog("Rayfield response received, loading...")
-            Rayfield = loadstring(response)()
-            rayFieldLoaded = true
-            debugLog("✅ Rayfield loaded successfully")
-        else
-            errorLog("Rayfield URL returned empty response")
-        end
-    end)
+    local DEBUG_MODE = true
     
-    if not rayFieldSuccess then
-        errorLog("Failed to load Rayfield: " .. tostring(rayFieldErr))
-        errorLog("Continuing without UI (console mode)")
-        rayFieldLoaded = false
+    local function debugLog(msg)
+        if DEBUG_MODE then print("[DEBUG] " .. tostring(msg)) end
     end
     
-    -- If Rayfield failed, create a simple fallback UI system
-    if not rayFieldLoaded then
-        debugLog("Creating fallback UI system...")
-        Rayfield = {
-            CreateWindow = function(self, config)
-                debugLog("Fallback: Creating window")
-                return {
-                    CreateTab = function(self, name, icon)
-                        debugLog("Fallback: Creating tab: " .. tostring(name))
-                        return {
-                            CreateSection = function(self, name)
-                                print("[SECTION] " .. tostring(name))
-                                return self
-                            end,
-                            CreateToggle = function(self, config)
-                                local toggleName = (config and config.Name) or "Unknown Toggle"
-                                print("[TOGGLE] " .. tostring(toggleName))
-                                return self
-                            end,
-                            CreateSlider = function(self, config)
-                                local sliderName = (config and config.Name) or "Unknown Slider"
-                                print("[SLIDER] " .. tostring(sliderName))
-                                return self
-                            end,
-                            CreateButton = function(self, config)
-                                local buttonName = (config and config.Name) or "Unknown Button"
-                                print("[BUTTON] " .. tostring(buttonName))
-                                return self
-                            end,
-                            CreateLabel = function(self, text)
-                                print("[LABEL] " .. tostring(text))
-                                return self
-                            end
-                        }
-                    end,
-                    Destroy = function(self)
-                        debugLog("Fallback: Window destroyed")
-                    end
-                }
-            end
-        }
+    local function errorLog(msg)
+        print("[ERROR] " .. tostring(msg))
+        warn("[ERROR] " .. tostring(msg))
     end
     
-    -- Window Configuration
-    if not Rayfield then
-        errorLog("FATAL: Rayfield is still nil after initialization")
+    -- Test game services exist
+    debugLog("Testing game services...")
+    local game_obj = game
+    if not game_obj then
+        errorLog("game object is nil!")
         return
     end
     
-    debugLog("Creating window...")
-    Window = Rayfield:CreateWindow({
-        Name = "Battery Automation Hub",
-        Icon = 0,
-        LoadingTitle = "Loading Automation...",
-        LoadingSubtitle = "Please wait",
-        Theme = "Default",
-        DisableRayfieldPrompts = false,
-        DisableBuildWarnings = false,
-        ConfigurationSaving = {
-            Enabled = false,
-            FolderName = nil,
-            FileName = "WorkspaceConfig"
-        },
-        Discord = {
-            Enabled = false,
-            Invite = "noinvitelink",
-            RememberJoins = true
-        },
-        KeySystem = false
-    })
-    
-    if not Window then
-        errorLog("FATAL: Window creation failed")
-        return
-    end
-    
-    debugLog("Window created successfully")
-    
-    -- ==========================================
-    -- GLOBAL VARIABLES
-    -- ==========================================
-    local _G = _G or {}
-    _G.AutoFarm = false
-    _G.AutoTeleport = false
-    _G.FarmDelay = 0.3
-    
-    -- ==========================================
-    -- GAME SERVICES
-    -- ==========================================
-    debugLog("Initializing game services...")
-    
-    local replicatedStorage = game:GetService("ReplicatedStorage")
-    local workspace = game:GetService("Workspace")
     local players = game:GetService("Players")
     local localPlayer = players.LocalPlayer
+    if not localPlayer then
+        errorLog("LocalPlayer not found - waiting for it...")
+        localPlayer = players:WaitForChild("LocalPlayer", 5)
+    end
     
     if not localPlayer then
-        errorLog("LocalPlayer not found!")
+        errorLog("FATAL: LocalPlayer still unavailable")
         return
     end
     
-    debugLog("✅ Game services initialized")
+    debugLog("✅ LocalPlayer found")
     
-    -- ==========================================
-    -- GET REMOTES WITH ENHANCED ERROR HANDLING
-    -- ==========================================
-    debugLog("Searching for Remotes...")
+    -- Create a simple in-game UI using Roblox GUI
+    debugLog("Creating GUI...")
     
-    local remotes = replicatedStorage:WaitForChild("Remotes", 5)
-    if not remotes then
-        errorLog("Remotes folder not found in ReplicatedStorage after 5 seconds")
-        local children = replicatedStorage:GetChildren()
-        local childNames = {}
-        for _, child in ipairs(children) do
-            table.insert(childNames, child.Name)
-        end
-        errorLog("Available in ReplicatedStorage: " .. table.concat(childNames, ", "))
-        remotes = nil
-    else
-        debugLog("✅ Remotes folder found")
+    local playerGui = localPlayer:WaitForChild("PlayerGui", 5)
+    if not playerGui then
+        errorLog("PlayerGui not found")
+        return
     end
     
-    local grabBatteryRemote = nil
-    local useBatteryRemote = nil
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "BatteryAutomationGUI"
+    screenGui.ResetOnSpawn = false
+    screenGui.Parent = playerGui
     
-    if remotes then
-        grabBatteryRemote = remotes:WaitForChild("GrabBatteryRemote", 3)
-        useBatteryRemote = remotes:WaitForChild("UseBatteryOnCrateRemote", 3)
-        
-        if grabBatteryRemote then debugLog("✅ GrabBatteryRemote found") else errorLog("GrabBatteryRemote not found") end
-        if useBatteryRemote then debugLog("✅ UseBatteryOnCrateRemote found") else errorLog("UseBatteryOnCrateRemote not found") end
-        
-        if not grabBatteryRemote or not useBatteryRemote then
-            local remoteNames = {}
-            for _, remote in ipairs(remotes:GetChildren()) do
-                table.insert(remoteNames, remote.Name)
-            end
-            errorLog("Available remotes: " .. table.concat(remoteNames, ", "))
-        end
-    end
+    -- Create title label
+    local titleLabel = Instance.new("TextLabel")
+    titleLabel.Name = "TitleLabel"
+    titleLabel.Size = UDim2.new(0, 300, 0, 50)
+    titleLabel.Position = UDim2.new(0, 10, 0, 10)
+    titleLabel.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    titleLabel.BackgroundTransparency = 0.3
+    titleLabel.TextColor3 = Color3.fromRGB(0, 255, 0)
+    titleLabel.TextSize = 18
+    titleLabel.Text = "Battery Automation Hub"
+    titleLabel.Parent = screenGui
     
-    -- ==========================================
-    -- GET GAME OBJECTS WITH ENHANCED ERROR HANDLING
-    -- ==========================================
-    debugLog("Searching for game objects...")
+    -- Create status label
+    local statusLabel = Instance.new("TextLabel")
+    statusLabel.Name = "StatusLabel"
+    statusLabel.Size = UDim2.new(0, 300, 0, 200)
+    statusLabel.Position = UDim2.new(0, 10, 0, 70)
+    statusLabel.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    statusLabel.BackgroundTransparency = 0.3
+    statusLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
+    statusLabel.TextSize = 14
+    statusLabel.Text = "✅ GUI Loaded\n\nSearching for game objects..."
+    statusLabel.TextWrapped = true
+    statusLabel.TextXAlignment = Enum.TextXAlignment.Left
+    statusLabel.TextYAlignment = Enum.TextYAlignment.Top
+    statusLabel.Parent = screenGui
     
-    local terrain = workspace:WaitForChild("Terrain", 3)
-    if not terrain then
-        errorLog("Terrain not found in Workspace after 3 seconds")
-        terrain = nil
-    else
-        debugLog("✅ Terrain found")
-    end
+    debugLog("✅ GUI Created")
     
+    -- Search for game objects
+    local workspace = game:GetService("Workspace")
+    local replicatedStorage = game:GetService("ReplicatedStorage")
+    
+    local remotes = replicatedStorage:FindFirstChild("Remotes")
+    local terrain = workspace:FindFirstChild("Terrain")
     local batteryAttachment = nil
     local eggCrateAttachment = nil
     
     if terrain then
-        batteryAttachment = terrain:WaitForChild("BatterySpawnAttachment", 3)
-        eggCrateAttachment = terrain:WaitForChild("EggCrateSpawnAttachment", 3)
+        batteryAttachment = terrain:FindFirstChild("BatterySpawnAttachment")
+        eggCrateAttachment = terrain:FindFirstChild("EggCrateSpawnAttachment")
+    end
+    
+    -- Update status
+    local statusText = "✅ GUI Loaded\n"
+    statusText = statusText .. (remotes and "✅ Remotes found\n" or "❌ Remotes not found\n")
+    statusText = statusText .. (terrain and "✅ Terrain found\n" or "❌ Terrain not found\n")
+    statusText = statusText .. (batteryAttachment and "✅ Battery Attachment found\n" or "❌ Battery Attachment not found\n")
+    statusText = statusText .. (eggCrateAttachment and "✅ Crate Attachment found\n" or "❌ Crate Attachment not found\n")
+    
+    statusLabel.Text = statusText
+    
+    debugLog("✅ Script initialization complete")
+    
+    -- Global variables for automation
+    _G.AutoFarm = false
+    _G.AutoTeleport = false
+    _G.FarmDelay = 0.3
+    
+    -- Create a simple toggle button
+    local toggleButton = Instance.new("TextButton")
+    toggleButton.Name = "ToggleButton"
+    toggleButton.Size = UDim2.new(0, 300, 0, 40)
+    toggleButton.Position = UDim2.new(0, 10, 0, 280)
+    toggleButton.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    toggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    toggleButton.TextSize = 16
+    toggleButton.Text = "Toggle Auto Farm (OFF)"
+    toggleButton.Parent = screenGui
+    
+    local farmActive = false
+    
+    toggleButton.MouseButton1Click:Connect(function()
+        farmActive = not farmActive
+        toggleButton.Text = farmActive and "Toggle Auto Farm (ON)" or "Toggle Auto Farm (OFF)"
+        toggleButton.BackgroundColor3 = farmActive and Color3.fromRGB(0, 100, 0) or Color3.fromRGB(30, 30, 30)
         
-        if batteryAttachment then debugLog("✅ BatterySpawnAttachment found") else errorLog("BatterySpawnAttachment not found") end
-        if eggCrateAttachment then debugLog("✅ EggCrateSpawnAttachment found") else errorLog("EggCrateSpawnAttachment not found") end
-        
-        if not batteryAttachment or not eggCrateAttachment then
-            local terrainChildren = {}
-            for _, child in ipairs(terrain:GetChildren()) do
-                table.insert(terrainChildren, child.Name)
-            end
-            errorLog("Available in Terrain: " .. table.concat(terrainChildren, ", "))
+        if farmActive and remotes and batteryAttachment and eggCrateAttachment then
+            debugLog("Auto farm started")
+            task.spawn(function()
+                while farmActive do
+                    local grabRemote = remotes:FindFirstChild("GrabBatteryRemote")
+                    local useRemote = remotes:FindFirstChild("UseBatteryOnCrateRemote")
+                    
+                    if grabRemote then
+                        pcall(function() grabRemote:FireServer(batteryAttachment) end)
+                    end
+                    task.wait(_G.FarmDelay)
+                    
+                    if useRemote then
+                        pcall(function() useRemote:FireServer(eggCrateAttachment) end)
+                    end
+                    task.wait(_G.FarmDelay)
+                end
+            end)
         end
-    end
+    end)
     
-    -- ==========================================
-    -- TAB 1: AUTOMATION
-    -- ==========================================
-    local AutomationTab = Window:CreateTab("Automation", 0)
-    AutomationTab:CreateSection("Battery Settings")
-    
-    AutomationTab:CreateToggle({
-        Name = "Auto Grab & Use Battery",
-        CurrentValue = false,
-        Flag = "MainFarmToggleFlag",
-        Callback = function(Value)
-            _G.AutoFarm = Value
-            if Value then
-                if not grabBatteryRemote or not useBatteryRemote then
-                    errorLog("Cannot start farm: Remotes not available!")
-                    _G.AutoFarm = false
-                    return
-                end
-                
-                task.spawn(function()
-                    while _G.AutoFarm do
-                        if grabBatteryRemote and batteryAttachment then
-                            local farmSuccess, farmErr = pcall(function()
-                                grabBatteryRemote:FireServer(batteryAttachment)
-                            end)
-                            if not farmSuccess then
-                                errorLog("Error grabbing battery: " .. tostring(farmErr))
-                            end
-                        end
-                        task.wait(_G.FarmDelay)
-                        
-                        if useBatteryRemote and eggCrateAttachment then
-                            local useSuccess, useErr = pcall(function()
-                                useBatteryRemote:FireServer(eggCrateAttachment)
-                            end)
-                            if not useSuccess then
-                                errorLog("Error using battery: " .. tostring(useErr))
-                            end
-                        end
-                        task.wait(_G.FarmDelay)
-                    end
-                end)
-            end
-        end,
-    })
-    
-    AutomationTab:CreateSlider({
-        Name = "Farm Speed Delay",
-        Range = {0.1, 2},
-        Increment = 0.1,
-        Suffix = "s",
-        CurrentValue = 0.3,
-        Flag = "DelaySettingSlider",
-        Callback = function(Value)
-            _G.FarmDelay = Value
-            debugLog("Farm delay set to: " .. Value .. "s")
-        end,
-    })
-    
-    -- ==========================================
-    -- TAB 2: TELEPORTS
-    -- ==========================================
-    local TeleportTab = Window:CreateTab("Teleports", 0)
-    TeleportTab:CreateSection("Movement")
-    
-    TeleportTab:CreateToggle({
-        Name = "Auto Teleport to Crate Loop",
-        CurrentValue = false,
-        Flag = "TPLoopToggle",
-        Callback = function(Value)
-            _G.AutoTeleport = Value
-            if Value then
-                if not eggCrateAttachment then
-                    errorLog("Cannot start teleport loop: EggCrateAttachment not available!")
-                    _G.AutoTeleport = false
-                    return
-                end
-                
-                task.spawn(function()
-                    while _G.AutoTeleport do
-                        local character = localPlayer.Character
-                        local hrp = character and character:FindFirstChild("HumanoidRootPart")
-                        if hrp and eggCrateAttachment then
-                            local tpSuccess, tpErr = pcall(function()
-                                hrp.CFrame = CFrame.new(eggCrateAttachment.WorldPosition + Vector3.new(0, 3, 0))
-                            end)
-                            if not tpSuccess then
-                                errorLog("Teleport error: " .. tostring(tpErr))
-                            end
-                        end
-                        task.wait(1)
-                    end
-                end)
-            end
-        end,
-    })
-    
-    TeleportTab:CreateSection("Instant Waypoints")
-    
-    TeleportTab:CreateButton({
-        Name = "Teleport to Crate (Once)",
-        Callback = function()
-            local character = localPlayer.Character
-            local hrp = character and character:FindFirstChild("HumanoidRootPart")
-            if hrp and eggCrateAttachment then
-                local crateTPSuccess, crateTpErr = pcall(function()
-                    hrp.CFrame = CFrame.new(eggCrateAttachment.WorldPosition + Vector3.new(0, 3, 0))
-                    debugLog("Teleported to crate")
-                end)
-                if not crateTPSuccess then
-                    errorLog("Teleport failed: " .. tostring(crateTpErr))
-                end
-            else
-                errorLog("Cannot teleport: HRP or Crate Attachment missing")
-            end
-        end,
-    })
-    
-    TeleportTab:CreateButton({
-        Name = "Teleport to Battery Spawn (Once)",
-        Callback = function()
-            local character = localPlayer.Character
-            local hrp = character and character:FindFirstChild("HumanoidRootPart")
-            if hrp and batteryAttachment then
-                local batteryTPSuccess, batteryTpErr = pcall(function()
-                    hrp.CFrame = CFrame.new(batteryAttachment.WorldPosition + Vector3.new(0, 3, 0))
-                    debugLog("Teleported to battery spawn")
-                end)
-                if not batteryTPSuccess then
-                    errorLog("Teleport failed: " .. tostring(batteryTpErr))
-                end
-            else
-                errorLog("Cannot teleport: HRP or Battery Attachment missing")
-            end
-        end,
-    })
-    
-    -- ==========================================
-    -- TAB 3: DEBUG INFO
-    -- ==========================================
-    local InfoTab = Window:CreateTab("Info", 0)
-    InfoTab:CreateSection("Script Status")
-    
-    local statusText = "✅ Script Loaded"
-    if not rayFieldLoaded then
-        statusText = statusText .. " (Fallback UI Mode)"
-    end
-    InfoTab:CreateLabel(statusText)
-    InfoTab:CreateLabel("Rayfield UI: " .. (rayFieldLoaded and "✅" or "⚠️ Fallback"))
-    InfoTab:CreateLabel("LocalPlayer: " .. (localPlayer and "✅" or "❌"))
-    InfoTab:CreateLabel("Remotes: " .. (remotes and "✅" or "❌"))
-    InfoTab:CreateLabel("GrabBatteryRemote: " .. (grabBatteryRemote and "✅" or "❌"))
-    InfoTab:CreateLabel("UseBatteryRemote: " .. (useBatteryRemote and "✅" or "❌"))
-    InfoTab:CreateLabel("Terrain: " .. (terrain and "✅" or "❌"))
-    InfoTab:CreateLabel("BatterySpawnAttachment: " .. (batteryAttachment and "✅" or "❌"))
-    InfoTab:CreateLabel("EggCrateAttachment: " .. (eggCrateAttachment and "✅" or "❌"))
-    
-    InfoTab:CreateSection("Console Output")
-    InfoTab:CreateLabel("Check console for detailed debug logs")
-    
-    debugLog("✅ All systems initialized")
-    
-end)
+    debugLog("✅ All systems ready")
+end
 
+-- Execute with error handling
+local success, err = pcall(safeExecute)
 if not success then
-    errorLog("CRITICAL SCRIPT ERROR: " .. tostring(err))
+    print("[FATAL ERROR] " .. tostring(err))
+    warn("[FATAL ERROR] " .. tostring(err))
     print(debug.traceback())
 end
+
+print("[INIT] Script execution finished")
