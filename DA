@@ -1,12 +1,12 @@
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
--- Create Window
+-- Create main UI Window
 local Window = Rayfield:CreateWindow({
-    Name = "Battery Automation Hub",
-    LoadingTitle = "Loading Script...",
-    LoadingSubtitle = "Ready",
+    Name = "Battery Farm Suite",
+    LoadingTitle = "Initializing Hub...",
+    LoadingSubtitle = "Setting up interface",
     ConfigurationSaving = {
-        Enabled = false -- Disabled to ensure no bad config blocks the UI
+        Enabled = false -- Set to false to avoid breaking the UI due to cached configurations
     },
     Discord = {
         Enabled = false
@@ -14,96 +14,206 @@ local Window = Rayfield:CreateWindow({
     KeySystem = false
 })
 
--- Variables for Toggles
+-- Shared Global Settings
 local _G = _G or {}
 _G.AutoFarm = false
 _G.AutoTeleport = false
+_G.FarmDelay = 0.3
+_G.WalkSpeed = 16
+_G.JumpPower = 50
 
--- Services & Remotes
+-- Services and game engine components
 local replicatedStorage = game:GetService("ReplicatedStorage")
 local workspace = game:GetService("Workspace")
 local players = game:GetService("Players")
 
-local remotes = replicatedStorage:WaitForChild("Remotes")
-local grabBatteryRemote = remotes:WaitForChild("GrabBatteryRemote")
-local useBatteryRemote = remotes:WaitForChild("UseBatteryOnCrateRemote")
+local remotes = replicatedStorage:WaitForChild("Remotes", 5)
+local grabBatteryRemote = remotes and remotes:WaitForChild("GrabBatteryRemote", 5)
+local useBatteryRemote = remotes and remotes:WaitForChild("UseBatteryOnCrateRemote", 5)
 
-local terrain = workspace:WaitForChild("Terrain")
-local batteryAttachment = terrain:WaitForChild("BatterySpawnAttachment")
-local eggCrateAttachment = terrain:WaitForChild("EggCrateSpawnAttachment")
+local terrain = workspace:WaitForChild("Terrain", 5)
+local batteryAttachment = terrain and terrain:WaitForChild("BatterySpawnAttachment", 5)
+local eggCrateAttachment = terrain and terrain:WaitForChild("EggCrateSpawnAttachment", 5)
 
 local localPlayer = players.LocalPlayer
 
--- Create Tab (Icon changed to 0 / nil to prevent empty UI bugs)
-local FarmTab = Window:CreateTab("Automation", 0) 
+-- ==========================================
+-- TAB 1: AUTOMATION
+-- ==========================================
+local AutomationTab = Window:CreateTab("Automation", 0) -- 0 removes the icon to prevent rendering crashes
+AutomationTab:CreateSection("Battery & Crate Automation")
 
--- Section Header
-local FarmSection = FarmTab:CreateSection("Main Farm Functions")
-
--- Toggle 1: Auto Farm Loop
-local FarmToggle = FarmTab:CreateToggle({
-    Name = "Auto Grab & Use Battery",
+-- Toggle for continuous farming
+local FarmToggle = AutomationTab:CreateToggle({
+    Name = "Auto Grab & Deposit",
     CurrentValue = false,
-    Flag = "AutoFarmFlag",
+    Flag = "AutoFarmToggle",
     Callback = function(Value)
         _G.AutoFarm = Value
         
         if Value then
             task.spawn(function()
                 while _G.AutoFarm do
-                    -- 1. Grab Battery
-                    local grabArgs = { batteryAttachment }
-                    grabBatteryRemote:FireServer(unpack(grabArgs))
+                    if grabBatteryRemote and batteryAttachment then
+                        local grabArgs = { batteryAttachment }
+                        grabBatteryRemote:FireServer(unpack(grabArgs))
+                    end
                     
-                    task.wait(0.3)
+                    task.wait(_G.FarmDelay)
                     
-                    -- 2. Use Battery
-                    local useArgs = { eggCrateAttachment }
-                    useBatteryRemote:FireServer(unpack(useArgs))
+                    if useBatteryRemote and eggCrateAttachment then
+                        local useArgs = { eggCrateAttachment }
+                        useBatteryRemote:FireServer(unpack(useArgs))
+                    end
                     
-                    task.wait(0.3)
+                    task.wait(_G.FarmDelay)
                 end
             end)
         end
     end,
 })
 
--- Toggle 2: Auto Teleport to Crate
-local TeleportToggle = FarmTab:CreateToggle({
-    Name = "Auto Teleport to Crate",
+-- Slider to control remote timing (prevents anti-cheat kicks)
+local DelaySlider = AutomationTab:CreateSlider({
+    Name = "Automation Delay Speed",
+    Range = {0.1, 2},
+    Increment = 0.1,
+    Suffix = "s",
+    CurrentValue = 0.3,
+    Flag = "DelaySlider",
+    Callback = function(Value)
+        _G.FarmDelay = Value
+    end,
+})
+
+-- ==========================================
+-- TAB 2: TELEPORTS
+-- ==========================================
+local TeleportTab = Window:CreateTab("Teleports", 0)
+TeleportTab:CreateSection("Movement Loops")
+
+-- Safe looping teleport
+local TeleportToggle = TeleportTab:CreateToggle({
+    Name = "Auto Teleport to Crate (Constant)",
     CurrentValue = false,
-    Flag = "TeleportFlag",
+    Flag = "AutoTPToggle",
     Callback = function(Value)
         _G.AutoTeleport = Value
         
         if Value then
             task.spawn(function()
                 while _G.AutoTeleport do
-                    local character = localPlayer.Character or localPlayer.CharacterAdded:Wait()
-                    local hrp = character:WaitForChild("HumanoidRootPart", 5)
+                    local character = localPlayer.Character
+                    local hrp = character and character:FindFirstChild("HumanoidRootPart")
                     
                     if hrp and eggCrateAttachment then
                         hrp.CFrame = CFrame.new(eggCrateAttachment.WorldPosition + Vector3.new(0, 3, 0))
                     end
                     
-                    task.wait(1)
+                    task.wait(1) -- Teleports back to the spot every second
                 end
             end)
         end
     end,
 })
 
--- Section Header for Utilities
-local UtilsSection = FarmTab:CreateSection("Utilities")
+TeleportTab:CreateSection("Manual Waypoints")
 
--- Single Use Instant Teleport Button
-local TeleportButton = FarmTab:CreateButton({
-    Name = "Teleport to Crate (Once)",
+-- Quick Teleport Buttons
+TeleportTab:CreateButton({
+    Name = "Teleport to Crate",
     Callback = function()
-        local character = localPlayer.Character or localPlayer.CharacterAdded:Wait()
-        local hrp = character:FindFirstChild("HumanoidRootPart")
+        local character = localPlayer.Character
+        local hrp = character and character:FindFirstChild("HumanoidRootPart")
         if hrp and eggCrateAttachment then
             hrp.CFrame = CFrame.new(eggCrateAttachment.WorldPosition + Vector3.new(0, 3, 0))
         end
     end,
 })
+
+TeleportTab:CreateButton({
+    Name = "Teleport to Battery Spawn",
+    Callback = function()
+        local character = localPlayer.Character
+        local hrp = character and character:FindFirstChild("HumanoidRootPart")
+        if hrp and batteryAttachment then
+            hrp.CFrame = CFrame.new(batteryAttachment.WorldPosition + Vector3.new(0, 3, 0))
+        end
+    end,
+})
+
+-- ==========================================
+-- TAB 3: PLAYER SETTINGS
+-- ==========================================
+local PlayerTab = Window:CreateTab("Player Mods", 0)
+PlayerTab:CreateSection("Character Physics")
+
+-- WalkSpeed Slider
+PlayerTab:CreateSlider({
+    Name = "WalkSpeed Modifier",
+    Range = {16, 250},
+    Increment = 1,
+    Suffix = " studs/s",
+    CurrentValue = 16,
+    Flag = "WSSlider",
+    Callback = function(Value)
+        _G.WalkSpeed = Value
+        local character = localPlayer.Character
+        local humanoid = character and character:FindFirstChildWhichIsA("Humanoid")
+        if humanoid then
+            humanoid.WalkSpeed = Value
+        end
+    end,
+})
+
+-- JumpPower Slider
+PlayerTab:CreateSlider({
+    Name = "JumpPower Modifier",
+    Range = {50, 500},
+    Increment = 1,
+    Suffix = " power",
+    CurrentValue = 50,
+    Flag = "JPSlider",
+    Callback = function(Value)
+        _G.JumpPower = Value
+        local character = localPlayer.Character
+        local humanoid = character and character:FindFirstChildWhichIsA("Humanoid")
+        if humanoid then
+            humanoid.UseJumpPower = true
+            humanoid.JumpPower = Value
+        end
+    end,
+})
+
+-- Automatic cleanup and persistence when the character respawns
+localPlayer.CharacterAdded:Connect(function(char)
+    local humanoid = char:WaitForChild("Humanoid", 5)
+    if humanoid then
+        humanoid.WalkSpeed = _G.WalkSpeed
+        if _G.JumpPower ~= 50 then
+            humanoid.UseJumpPower = true
+            humanoid.JumpPower = _G.JumpPower
+        end
+    end
+end)
+
+-- ==========================================
+-- TAB 4: CONTROL & CREDITS
+-- ==========================================
+local ConfigTab = Window:CreateTab("Credits & Setup", 0)
+ConfigTab:CreateSection("Hub Details")
+ConfigTab:CreateLabel("Script Version: 1.2.0")
+ConfigTab:CreateLabel("Compatible with Rayfield v3")
+
+ConfigTab:CreateSection("Clean Unload")
+ConfigTab:CreateButton({
+    Name = "Destroy Interface",
+    Callback = function()
+        _G.AutoFarm = false
+        _G.AutoTeleport = false
+        Rayfield:Destroy()
+    end,
+})
+```eof
+
+We've organized the script's functions into four structured tabs. This solves any empty-window loading errors by setting custom icon values to 0 and explicitly disabling automatic config files that can sometimes cache corrupted layouts. Let me know if you would like to add any extra tabs or more customizable options!
