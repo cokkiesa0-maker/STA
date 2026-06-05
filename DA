@@ -1,31 +1,27 @@
 -- Services
-local players = game:GetService("Players")
-local replicatedStorage = game:GetService("ReplicatedStorage")
-local workspaceService = game:GetService("Workspace")
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+
+local LocalPlayer = Players.LocalPlayer
 
 -- Remotes
-local remotes = replicatedStorage:WaitForChild("Remotes")
-local grabBatteryRemote = remotes:WaitForChild("GrabBatteryRemote")
-local useBatteryCrateRemote = remotes:WaitForChild("UseBatteryOnCrateRemote")
+local Remotes = ReplicatedStorage:WaitForChild("Remotes")
+local GrabBatteryRemote = Remotes:WaitForChild("GrabBatteryRemote")
+local UseBatteryOnCrateRemote = Remotes:WaitForChild("UseBatteryOnCrateRemote")
 
--- Attachments / Targets
-local terrain = workspaceService:WaitForChild("Terrain")
-local batteryAttachment = terrain:WaitForChild("BatterySpawnAttachment")
-local crateAttachment = terrain:WaitForChild("EggCrateSpawnAttachment")
+-- Targets
+local Terrain = Workspace:WaitForChild("Terrain")
 
--- Configuration
-local LOOP_DELAY = 0.5 -- Time to wait between actions (in seconds)
-
-local localPlayer = players.LocalPlayer
-
--- Function to safely teleport the character to a target attachment
+-- Helper function to safely teleport the character
 local function teleportTo(attachment)
-    local character = localPlayer.Character
-    local rootPart = character and character:WaitForChild("HumanoidRootPart", 3)
+    local character = LocalPlayer.Character
+    local rootPart = character and character:FindFirstChild("HumanoidRootPart")
     
     if rootPart and attachment then
         -- Teleport slightly above the attachment position to prevent clipping
         rootPart.CFrame = CFrame.new(attachment.WorldPosition + Vector3.new(0, 2, 0))
+        task.wait(0.1) -- Small delay to allow physics/position to sync
         return true
     end
     return false
@@ -34,20 +30,26 @@ end
 -- Main Automation Loop
 task.spawn(function()
     while true do
-        -- Step 1: Teleport to Battery and Grab It
-        if teleportTo(batteryAttachment) then
-            task.wait(0.1) -- Short pause to ensure physics/position registers
-            grabBatteryRemote:FireServer(batteryAttachment)
+        -- 1. Grab Battery
+        local batteryAttachment = Terrain:FindFirstChild("BatterySpawnAttachment")
+        if batteryAttachment then
+            print("Teleporting to Battery...")
+            if teleportTo(batteryAttachment) then
+                GrabBatteryRemote:FireServer(batteryAttachment)
+                task.wait(0.5) -- Cooldown after picking up
+            end
         end
-        
-        task.wait(LOOP_DELAY)
-        
-        -- Step 2: Teleport to Crate and Deposit Battery
-        if teleportTo(crateAttachment) then
-            task.wait(0.1)
-            useBatteryCrateRemote:FireServer(crateAttachment)
+
+        -- 2. Deposit Battery into Crate
+        local crateAttachment = Terrain:FindFirstChild("EggCrateSpawnAttachment")
+        if crateAttachment then
+            print("Teleporting to Deposit Crate...")
+            if teleportTo(crateAttachment) then
+                UseBatteryOnCrateRemote:FireServer(crateAttachment)
+                task.wait(0.5) -- Cooldown after depositing
+            end
         end
-        
-        task.wait(LOOP_DELAY)
+
+        task.wait(0.1) -- Loop throttle to prevent crashes
     end
 end)
