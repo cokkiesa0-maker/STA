@@ -2,6 +2,7 @@
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
+local Random = Random.new()
 
 -- Player setup
 local player = Players.LocalPlayer
@@ -9,7 +10,7 @@ local character = player.Character or player.CharacterAdded:Wait()
 local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
 local humanoid = character:WaitForChild("Humanoid")
 
--- Remotes & Attachments (with extra checks)
+-- Remotes & Attachments
 local grabRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("GrabBatteryRemote")
 local useRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("UseBatteryOnCrateRemote")
 
@@ -18,93 +19,68 @@ local crateAttach = Workspace:WaitForChild("Terrain"):WaitForChild("EggCrateSpaw
 
 -- Settings
 local TELEPORT_OFFSET = Vector3.new(0, 2, 0)
-local ACTION_DELAY = 1.5
-local LOOP_DELAY = 2
+local BASE_DELAY = 1
+local MAX_STUCK_WAIT = 5
+local RANDOM_TELEPORT_CHANCE = 0.3 -- 30% chance to teleport randomly each cycle
 
--- State Tracking
-local hasBattery = false
-local batteryModel = nil -- To detect if battery exists at spawn
-local crateDeposited = false
-
--- Helper: Check if battery is present at spawn
-local function isBatteryAvailable()
-    -- Look for battery model/part near the attachment (adjust name to match your game's battery object)
-    local batteryCheck = Workspace:FindFirstChild("Battery") or batteryAttach.Parent:FindFirstChildWhichIsA("BasePart")
-    batteryModel = batteryCheck
-    return batteryCheck ~= nil
-end
-
--- Helper: Check if battery is in player's inventory/character
-local function checkIfHasBattery()
-    -- Check character for battery, or inventory if you use one
-    local batteryInChar = character:FindFirstChild("Battery")
-    hasBattery = batteryInChar ~= nil or (player.Backpack and player.Backpack:FindFirstChild("Battery"))
-    return hasBattery
-end
-
--- Helper: Check if deposit is complete
-local function isDepositComplete()
-    -- Adjust this to match how your game shows a successful deposit
-    -- Example: Check if crate has a "Powered" bool value or a visual change
-    local cratePowered = crateAttach.Parent:FindFirstChild("IsPowered")
-    crateDeposited = cratePowered and cratePowered.Value == true
-    return crateDeposited
-end
+-- State tracking
+local lastActionTime = os.clock()
+local currentTarget = batteryAttach
 
 -- Safe teleport function
-local function safeTeleport(target)
-    if not humanoidRootPart or humanoid.Health <= 0 then return false end
-    humanoidRootPart.CFrame = target.WorldCFrame + TELEPORT_OFFSET
-    wait(ACTION_DELAY)
-    return true
+local function teleport(target)
+    if humanoid.Health <= 0 or not humanoidRootPart then return end
+    -- Add small random offset to avoid getting stuck in same spot
+    local randomOffset = Vector3.new(Random:NextNumber(-1,1), 0, Random:NextNumber(-1,1))
+    humanoidRootPart.CFrame = target.WorldCFrame + TELEPORT_OFFSET + randomOffset
+    lastActionTime = os.clock()
+    wait(BASE_DELAY)
 end
 
--- Main loop
+-- Random teleport fallback
+local function tryRandomTeleport()
+    if Random:NextNumber() <= RANDOM_TELEPORT_CHANCE then
+        print("Doing random teleport to fix sticking...")
+        -- Choose random target or a spot between them
+        local randomTarget = Random:NextBoolean() and batteryAttach or crateAttach
+        teleport(randomTarget)
+    end
+end
+
+-- MAIN LOOP
 while true do
-    -- Reset deposit state each cycle
-    crateDeposited = false
+    wait(BASE_DELAY)
 
-    -- Step 1: Get battery ONLY if not already holding it and it's available
-    if not hasBattery and isBatteryAvailable() then
-        print("Teleporting to battery...")
-        if safeTeleport(batteryAttach) then
-            grabRemote:FireServer(batteryAttach)
-            wait(ACTION_DELAY)
-            -- Update state after trying to grab
-            hasBattery = checkIfHasBattery()
-            if hasBattery then
-                print("Battery picked up successfully!")
-                batteryModel = nil -- Clear since it's no longer at spawn
-            else
-                print("Failed to pick up battery - retrying...")
-            end
-        end
-    elseif hasBattery then
-        print("Already holding battery!")
-    else
-        print("Battery not available yet - waiting...")
+    -- Check if stuck (no action for too long)
+    if os.clock() - lastActionTime > MAX_STUCK_WAIT then
+        print("Looks stuck - triggering fallback teleport!")
+        tryRandomTeleport()
+        -- Switch target to force movement
+        currentTarget = currentTarget == batteryAttach and crateAttach or batteryAttach
+        lastActionTime = os.clock()
+        continue
     end
 
-    -- Step 2: Deposit battery ONLY if holding it and not already deposited
-    if hasBattery and not crateDeposited then
-        wait(ACTION_DELAY)
-        print("Teleporting to crate to deposit...")
-        if safeTeleport(crateAttach) then
-            useRemote:FireServer(crateAttach)
-            wait(ACTION_DELAY)
-            -- Update state after trying to deposit
-            crateDeposited = isDepositComplete()
-            if crateDeposited then
-                print("Battery deposited successfully!")
-                hasBattery = false -- Reset state after deposit
-            else
-                print("Failed to deposit battery - retrying...")
-            end
-        end
-    elseif crateDeposited then
-        print("Battery already deposited!")
+    -- Regular cycle with random chance to teleport
+    if Random:NextNumber() <= RANDOM_TELEPORT_CHANCE then
+        tryRandomTeleport()
     end
 
-    wait(LOOP_DELAY)
+    -- Step 1: Go to battery & grab
+    print("Teleporting to battery...")
+    teleport(batteryAttach)
+    grabRemote:FireServer(batteryAttach)
+    wait(BASE_DELAY + Random:NextNumber(0.5, 1.5)) -- Random wait to avoid pattern
+
+    -- Step 2: Go to crate & deposit
+    print("Teleporting to crate...")
+    teleport(crateAttach)
+    useRemote:FireServer(crateAttach)
+    wait(BASE_DELAY + Random:NextNumber(0.5, 2)) -- Random wait between cycles
+
+    -- Extra random teleport at end of cycle sometimes
+    if Random:NextBoolean() then
+        tryRandomTeleport()
+    end
 end
 
