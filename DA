@@ -3,138 +3,168 @@ local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
--- Player & Character References
+-- Player Setup
 local player = Players.LocalPlayer
-assert(player, "Script must run as a LocalScript in StarterPlayerScripts/StarterPack!")
+if not player then
+    print("[ERROR] Script must be a LocalScript in StarterPlayerScripts/StarterPack!")
+    return
+end
 
+-- Wait for character to load
+print("[INFO] Waiting for character to load...")
 local character = player.Character or player.CharacterAdded:Wait()
-local humanoid = character:WaitForChild("Humanoid", 10)
-local humanoidRootPart = character:WaitForChild("HumanoidRootPart", 10)
-assert(humanoid and humanoidRootPart, "Could not load character parts!")
+local humanoid = character:WaitForChild("Humanoid", 30)
+local humanoidRootPart = character:WaitForChild("HumanoidRootPart", 30)
 
--- Core Game References (pre-configured to match your original paths)
-local REMOTE_FOLDER = ReplicatedStorage:WaitForChild("Remotes", 10)
-local GRAB_REMOTE = REMOTE_FOLDER:WaitForChild("GrabBatteryRemote", 10)
-local USE_REMOTE = REMOTE_FOLDER:WaitForChild("UseBatteryOnCrateRemote", 10)
-local DROPS_REMOTE = REMOTE_FOLDER:WaitForChild("BatteryCrateDropsRemote", 10)
+if not humanoid or not humanoidRootPart then
+    print("[ERROR] Missing character parts - humanoid:", humanoid, "RootPart:", humanoidRootPart)
+    return
+end
+print("[INFO] Character loaded successfully!")
 
-local TERRAIN = Workspace:WaitForChild("Terrain", 10)
-local BATTERY_SPAWN = TERRAIN:WaitForChild("BatterySpawnAttachment", 10)
-local CRATE_SPAWN = TERRAIN:WaitForChild("EggCrateSpawnAttachment", 10)
-local DROPS_FOLDER = Workspace:FindFirstChild("Drops") or Workspace:WaitForChild("Drops", 10)
+-- Game Objects (CHECK THESE PATHS MATCH YOUR GAME!)
+print("[INFO] Loading game objects...")
+local REMOTE_FOLDER = ReplicatedStorage:FindFirstChild("Remotes")
+local GRAB_REMOTE = REMOTE_FOLDER and REMOTE_FOLDER:FindFirstChild("GrabBatteryRemote")
+local USE_REMOTE = REMOTE_FOLDER and REMOTE_FOLDER:FindFirstChild("UseBatteryOnCrateRemote")
+local DROPS_REMOTE = REMOTE_FOLDER and REMOTE_FOLDER:FindFirstChild("BatteryCrateDropsRemote")
+
+local TERRAIN = Workspace:FindFirstChild("Terrain")
+local BATTERY_SPAWN = TERRAIN and TERRAIN:FindFirstChild("BatterySpawnAttachment")
+local CRATE_SPAWN = TERRAIN and TERRAIN:FindFirstChild("EggCrateSpawnAttachment")
+local DROPS_FOLDER = Workspace:FindFirstChild("Drops")
+
+-- Print what's missing
+print("[CHECK] Remotes Folder:", REMOTE_FOLDER)
+print("[CHECK] Grab Remote:", GRAB_REMOTE)
+print("[CHECK] Use Remote:", USE_REMOTE)
+print("[CHECK] Drops Remote:", DROPS_REMOTE)
+print("[CHECK] Terrain:", TERRAIN)
+print("[CHECK] Battery Spawn:", BATTERY_SPAWN)
+print("[CHECK] Crate Spawn:", CRATE_SPAWN)
+print("[CHECK] Drops Folder:", DROPS_FOLDER)
+
+if not GRAB_REMOTE or not USE_REMOTE or not BATTERY_SPAWN or not CRATE_SPAWN then
+    print("[ERROR] Critical objects missing - fix paths above first!")
+    return
+end
+
+-- Settings (ADJUST THESE IF NEEDED)
+local BATTERY_TOOL_NAME = "Battery" -- Change to your battery's name
+local TELEPORT_DISTANCE_LIMIT = 3 -- Studs
+local LOOP_DELAY = 2
 
 -- State Tracking
 local lastTeleportTarget = nil
-local BATTERY_TOOL_NAME = "BatteryTool" -- Matches the name of your battery tool in-game
 
--- Helper: Check if character is alive and ready
+-- Helper Functions
 local function isCharacterValid()
-    return character and humanoid and humanoid.Health > 0 and humanoidRootPart and character.Parent == Workspace
+    local valid = character and humanoid.Health > 0 and humanoidRootPart and character.Parent == Workspace
+    if not valid then print("[INFO] Character invalid - dead or missing!") end
+    return valid
 end
 
--- Helper: Check if player is holding the battery
 local function hasBattery()
-    return character:FindFirstChild(BATTERY_TOOL_NAME) ~= nil or player.Backpack:FindFirstChild(BATTERY_TOOL_NAME) ~= nil
+    local inCharacter = character:FindFirstChild(BATTERY_TOOL_NAME)
+    local inBackpack = player.Backpack:FindFirstChild(BATTERY_TOOL_NAME)
+    local hasIt = inCharacter or inBackpack
+    print("[INFO] Has battery?", hasIt, "- In character:", inCharacter, "- In backpack:", inBackpack)
+    return hasIt
 end
 
--- Helper: Safe teleport (no duplicates, no clipping)
 local function teleportTo(target)
-    if not (isCharacterValid() and target) then return end
+    if not isCharacterValid() or not target then return end
 
-    -- Skip if already at target (3 stud tolerance) or same as last location
-    local distanceToTarget = (humanoidRootPart.Position - target.Position).Magnitude
-    if target == lastTeleportTarget or distanceToTarget < 3 then
+    local distance = (humanoidRootPart.Position - target.Position).Magnitude
+    if target == lastTeleportTarget then
+        print("[INFO] Skipping teleport - same target as last time!")
+        return
+    end
+    if distance < TELEPORT_DISTANCE_LIMIT then
+        print("[INFO] Skipping teleport - already within", TELEPORT_DISTANCE_LIMIT, "studs!")
         return
     end
 
-    -- Teleport with safety offset
-    humanoidRootPart.CFrame = CFrame.new(target.Position + Vector3.new(0, 2, 0)) * target.CFrame.Rotation
+    print("[INFO] Teleporting to:", target.Name)
+    humanoidRootPart.CFrame = CFrame.new(target.Position + Vector3.new(0, 2, 0))
     lastTeleportTarget = target
-    task.wait(1.2)
+    task.wait(1)
 end
 
--- Helper: Collect all drops efficiently
 local function collectDrops()
-    if not isCharacterValid() or not DROPS_FOLDER then return end
-
-    -- Sort drops by closest first
-    local sortedDrops = {}
-    for _, drop in ipairs(DROPS_FOLDER:GetChildren()) do
-        local dropPart = drop:IsA("BasePart") and drop or drop:FindFirstChildWhichIsA("BasePart")
-        if dropPart then
-            table.insert(sortedDrops, {Instance = drop, Position = dropPart.Position})
-        end
+    if not DROPS_FOLDER then
+        print("[INFO] Drops folder not found!")
+        return
     end
 
-    table.sort(sortedDrops, function(a, b)
-        return (humanoidRootPart.Position - a.Position).Magnitude < (humanoidRootPart.Position - b.Position).Magnitude
-    end)
+    local drops = DROPS_FOLDER:GetChildren()
+    if #drops == 0 then
+        print("[INFO] No drops to collect!")
+        return
+    end
 
-    -- Collect each drop
-    for _, dropInfo in ipairs(sortedDrops) do
+    print("[INFO] Collecting", #drops, "drops...")
+    for _, drop in ipairs(drops) do
         if not isCharacterValid() then break end
-        local drop = dropInfo.Instance
         
-        teleportTo(dropInfo.Instance)
-        -- Trigger touch interaction for collection
         local dropPart = drop:IsA("BasePart") and drop or drop:FindFirstChildWhichIsA("BasePart")
         if dropPart then
+            teleportTo(dropPart)
             firetouchinterest(humanoidRootPart, dropPart, 0)
             firetouchinterest(humanoidRootPart, dropPart, 1)
+            task.wait(0.5)
+            if drop.Parent then drop:Destroy() end
         end
-        
-        task.wait(0.6)
-        if drop.Parent then drop:Destroy() end
     end
 end
 
--- Helper: Handle respawns automatically
-local function onCharacterAdded(newChar)
+-- Respawn Handler
+player.CharacterAdded:Connect(function(newChar)
+    print("[INFO] Character respawned - resetting...")
     character = newChar
-    humanoid = character:WaitForChild("Humanoid", 10)
-    humanoidRootPart = character:WaitForChild("HumanoidRootPart", 10)
-    lastTeleportTarget = nil -- Reset teleport history
-    task.wait(2) -- Wait for respawn to finish
-end
+    humanoid = newChar:WaitForChild("Humanoid")
+    humanoidRootPart = newChar:WaitForChild("HumanoidRootPart")
+    lastTeleportTarget = nil
+    task.wait(2)
+end)
 
--- Connect respawn handler
-player.CharacterAdded:Connect(onCharacterAdded)
+-- MAIN LOOP
+print("[INFO] Starting main loop...")
+while true do
+    task.wait(LOOP_DELAY)
 
--- Main Automation Loop
-while task.wait(2.5) do
     if not isCharacterValid() then continue end
 
-    -- Step 1: Get battery if not holding one
+    -- Step 1: Get Battery
     if not hasBattery() then
+        print("[INFO] Going to battery spawn...")
         teleportTo(BATTERY_SPAWN)
+        print("[INFO] Firing GrabBatteryRemote...")
         GRAB_REMOTE:FireServer(BATTERY_SPAWN)
-        
-        -- Wait up to 5 seconds for battery to be collected
-        local waitStart = os.clock()
-        while not hasBattery() and os.clock() - waitStart < 5 do
-            task.wait(0.3)
-        end
 
-        -- Retry if failed
-        if not hasBattery() then
-            warn("Battery not found - trying again...")
-            lastTeleportTarget = nil
-            continue
+        -- Wait up to 5 seconds for battery
+        local waitTime = 0
+        while not hasBattery() and waitTime < 5 do
+            task.wait(0.5)
+            waitTime += 0.5
         end
     end
 
-    -- Step 2: Deliver battery to crate
+    -- Step 2: Use Battery on Crate
     if hasBattery() then
+        print("[INFO] Going to crate spawn...")
         teleportTo(CRATE_SPAWN)
+        print("[INFO] Firing UseBatteryOnCrateRemote...")
         USE_REMOTE:FireServer(CRATE_SPAWN)
-        task.wait(1.5)
+        task.wait(1)
 
-        -- Step 3: Spawn and collect drops
+        -- Step 3: Collect Drops
+        print("[INFO] Firing BatteryCrateDropsRemote...")
         DROPS_REMOTE:FireServer(Instance.new("Attachment"))
-        task.wait(1) -- Wait for drops to appear
+        task.wait(1)
         collectDrops()
 
-        -- Reset state for next cycle
+        -- Reset after cycle
         lastTeleportTarget = nil
     end
 end
