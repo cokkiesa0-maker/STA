@@ -1,63 +1,101 @@
--- Services
-local Workspace = game:GetService("Workspace")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
+-- CONFIGURABLE SETTINGS
+local GRAB_DELAY = 0.5 -- Seconds to wait before/after firing grab remote
+local DEPOSIT_DELAY = 0.5 -- Seconds to wait before/after firing deposit remote
+local SPAWN_CHECK_INTERVAL = 1 -- Seconds between checking for battery spawn
+local TELEPORT_DELAY = 0.2 -- Small delay after teleporting before next action
+
+-- SERVICES & DEPENDENCY WAIT CHECKS
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
 
--- Player setup
-local player = Players.LocalPlayer
-local character = player.Character or player.CharacterAdded:Wait()
-local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
-local humanoid = character:WaitForChild("Humanoid")
+-- Wait for critical game objects to exist
+local RemotesFolder = ReplicatedStorage:WaitForChild("Remotes", 30)
+local GrabBatteryRemote = RemotesFolder:WaitForChild("GrabBatteryRemote", 30)
+local UseBatteryOnCrateRemote = RemotesFolder:WaitForChild("UseBatteryOnCrateRemote", 30)
 
--- **CONFIRM THESE PATHS IN EXPLORER FIRST!**
-local batterySpawn = Workspace:WaitForChild("Terrain"):WaitForChild("BatterySpawnAttachment")
-local crateDeposit = Workspace:WaitForChild("Terrain"):WaitForChild("EggCrateSpawnAttachment")
+local Terrain = Workspace:WaitForChild("Terrain", 30)
+local BatterySpawn = Terrain:WaitForChild("BatterySpawnAttachment", 30)
+local EggCrateSpawn = Terrain:WaitForChild("EggCrateSpawnAttachment", 30)
 
--- **CONFIRM REMOTE NAMES ARE EXACT!**
-local grabRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("GrabBatteryRemote")
-local useRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("UseBatteryOnCrateRemote")
-local dropsRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("BatteryCrateDropsRemote")
+-- Get local player and character references
+local LocalPlayer = Players.LocalPlayer
+local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+local Humanoid = Character:WaitForChild("Humanoid", 10)
+local HumanoidRootPart = Character:WaitForChild("HumanoidRootPart", 10)
 
--- Force move character to a position
-local function moveTo(pos)
-    humanoid.WalkSpeed = 16
-    humanoidRootPart.CFrame = pos + Vector3.new(0, 2, 0) -- Add height to avoid issues
-    task.wait(2) -- Wait for server to register position
+-- Function to check if player has battery (adjust condition based on actual game logic!)
+-- Replace with how your game tracks battery possession (e.g. inventory value, tool existence)
+local function hasBattery()
+    -- Example: Check if a Battery tool exists in player's backpack or character
+    local backpackBattery = LocalPlayer.Backpack:FindFirstChild("Battery")
+    local characterBattery = Character:FindFirstChild("Battery")
+    return backpackBattery or characterBattery ~= nil
 end
 
--- **FIXED: Test remotes with/without arguments**
-local function collectBattery()
-    print("Moving to battery...")
-    moveTo(batterySpawn.WorldCFrame.Position)
-    
-    print("Trying to grab battery (with and without arguments)...")
-    -- Try both ways - some remotes don't need arguments
-    grabRemote:FireServer() 
-    task.wait(0.5)
-    grabRemote:FireServer(batterySpawn)
-    task.wait(1)
+-- Main farming loop
+while task.wait() do
+    -- SECTION 1: Acquire Battery
+    local batteryAcquired = false
+    while not batteryAcquired do
+        -- Ensure character parts are valid
+        if not HumanoidRootPart or not Humanoid or Humanoid.Health <= 0 then
+            Character = LocalPlayer.CharacterAdded:Wait()
+            Humanoid = Character:WaitForChild("Humanoid", 10)
+            HumanoidRootPart = Character:WaitForChild("HumanoidRootPart", 10)
+            task.wait(TELEPORT_DELAY)
+        end
+
+        -- Teleport to battery spawn
+        HumanoidRootPart.CFrame = BatterySpawn.WorldCFrame + Vector3.new(0, 2, 0) -- Offset to avoid ground clipping
+        task.wait(TELEPORT_DELAY)
+
+        -- Fire grab remote with safety delay
+        task.wait(GRAB_DELAY)
+        pcall(function()
+            GrabBatteryRemote:FireServer(BatterySpawn)
+        end)
+        task.wait(GRAB_DELAY)
+
+        -- Verify battery pickup
+        if hasBattery() then
+            batteryAcquired = true
+            print("Battery successfully acquired!")
+        else
+            print("Battery not found - retrying in " .. SPAWN_CHECK_INTERVAL .. " seconds...")
+            task.wait(SPAWN_CHECK_INTERVAL)
+        end
+    end
+
+    -- SECTION 2: Deposit Battery
+    if batteryAcquired then
+        -- Ensure character parts are valid
+        if not HumanoidRootPart or not Humanoid or Humanoid.Health <= 0 then
+            Character = LocalPlayer.CharacterAdded:Wait()
+            Humanoid = Character:WaitForChild("Humanoid", 10)
+            HumanoidRootPart = Character:WaitForChild("HumanoidRootPart", 10)
+            task.wait(TELEPORT_DELAY)
+        end
+
+        -- Teleport to crate location
+        HumanoidRootPart.CFrame = EggCrateSpawn.WorldCFrame + Vector3.new(0, 2, 0)
+        task.wait(TELEPORT_DELAY)
+
+        -- Fire deposit remote with safety delay
+        task.wait(DEPOSIT_DELAY)
+        pcall(function()
+            UseBatteryOnCrateRemote:FireServer(EggCrateSpawn)
+        end)
+        task.wait(DEPOSIT_DELAY)
+
+        -- Verify battery was deposited (invert possession check)
+        if not hasBattery() then
+            print("Battery successfully deposited! Waiting 3 seconds...")
+            task.wait(3) -- Lock at location for exact 3 seconds
+        else
+            print("Deposit failed - retrying deposit...")
+            task.wait(DEPOSIT_DELAY)
+        end
+    end
 end
 
-local function depositBattery()
-    print("Moving to deposit...")
-    moveTo(crateDeposit.WorldCFrame.Position)
-    
-    print("Trying to deposit battery (with and without arguments)...")
-    -- Try both ways for deposit too
-    useRemote:FireServer()
-    task.wait(0.5)
-    useRemote:FireServer(crateDeposit)
-    task.wait(1)
-    
-    -- Trigger drops (try with/without attachment)
-    dropsRemote:FireServer()
-    task.wait(0.5)
-    dropsRemote:FireServer(Instance.new("Attachment"))
-end
-
--- Main loop - battery FIRST, then deposit
-while true do
-    collectBattery()
-    depositBattery()
-    task.wait(3) -- Adjust wait time as needed
-end
