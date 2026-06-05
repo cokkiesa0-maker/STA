@@ -1,5 +1,6 @@
 -- Auto Farm Event Script
 -- Automatically teleports to batteries, grabs them, rides dragon to egg crates, and uses batteries to farm event rewards
+-- Press 'T' to toggle the script on/off
 
 print("=== AUTO FARM EVENT STARTED ===")
 
@@ -8,6 +9,7 @@ local success, err = pcall(function()
     local ReplicatedStorage = game:GetService("ReplicatedStorage")
     local Workspace = game:GetService("Workspace")
     local Players = game:GetService("Players")
+    local UserInputService = game:GetService("UserInputService")
     
     -- Get local player
     local LocalPlayer = Players.LocalPlayer
@@ -37,6 +39,7 @@ local success, err = pcall(function()
     
     local iteration = 0
     local dragonMounted = false
+    local farmingEnabled = true -- Toggle state
     
     -- Helper function to find and mount dragon
     local function mountDragon()
@@ -103,9 +106,35 @@ local success, err = pcall(function()
         return nil
     end
     
+    -- Toggle function
+    local function toggleFarming()
+        farmingEnabled = not farmingEnabled
+        if farmingEnabled then
+            print("🟢 FARMING ENABLED")
+        else
+            print("🔴 FARMING DISABLED")
+        end
+    end
+    
+    -- Input handling for 'T' key
+    UserInputService.InputBegan:Connect(function(input, gameProcessed)
+        if gameProcessed then return end
+        
+        if input.KeyCode == Enum.KeyCode.T then
+            toggleFarming()
+        end
+    end)
+    
     print("Starting farm loop...")
+    print("Press 'T' to toggle farming on/off")
     
     while iteration < MAX_ITERATIONS do
+        -- Check if farming is enabled
+        if not farmingEnabled then
+            wait(0.5) -- Check again every 0.5 seconds while disabled
+            goto continue
+        end
+        
         iteration = iteration + 1
         print("--- Iteration " .. iteration .. " ---")
         
@@ -204,6 +233,8 @@ local success, err = pcall(function()
         -- Wait before next iteration
         print("Waiting for next cycle...")
         wait(LOOP_DELAY)
+        
+        ::continue::
     end
     
     print("=== AUTO FARM EVENT COMPLETED ===")
