@@ -1,6 +1,6 @@
 -- [[ CONFIGURATION ]] --
-local INTERACT_DELAY = 0.8 -- Slightly increased to guarantee the game registers the drop/pick up
-local DETECT_RADIUS = 15 -- Distance to search around the player for prompts
+local INTERACT_DELAY = 0.8 
+local DETECT_RADIUS = 15 
 
 -- [[ SERVICES ]] --
 local Players = game:GetService("Players")
@@ -10,29 +10,28 @@ local LocalPlayer = Players.LocalPlayer
 local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
 local HumanoidRootPart = Character:WaitForChild("HumanoidRootPart")
 
+-- State tracking
+local CURRENT_STATE = "HUNTING"
 local depositTracker = {}
 
 LocalPlayer.CharacterAdded:Connect(function(newCharacter)
     Character = newCharacter
     HumanoidRootPart = newCharacter:WaitForChild("HumanoidRootPart")
+    CURRENT_STATE = "HUNTING" 
 end)
 
--- [[ FORCED TELEPORT ]] --
--- Bypasses TweenService entirely to force movement. If this doesn't move you, the objects aren't being found.
+-- [[ FORCE TELEPORT ]] --
 local function hardTeleport(targetCFrame)
     if not HumanoidRootPart then return end
-    
-    -- Disables velocity briefly to prevent rubberbanding/falling through floor
+    -- Safely ensure player isn't anchored before attempting movement
+    HumanoidRootPart.Anchored = false 
     HumanoidRootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-    
-    -- Move character slightly above the target destination
     HumanoidRootPart.CFrame = targetCFrame * CFrame.new(0, 2, 0)
-    task.wait(0.3) 
+    task.wait(0.4) 
 end
 
--- [[ AUTO INTERACTION ]] --
+-- [[ INTERACTION ]] --
 local function interact()
-    -- Method 1: Look for nearby ProximityPrompts and fire them instantly
     local foundPrompt = false
     for _, obj in ipairs(workspace:GetDescendants()) do
         if obj:IsA("ProximityPrompt") then
@@ -47,7 +46,6 @@ local function interact()
         end
     end
     
-    -- Method 2: Fallback virtual keypress if no prompt object is detected
     if not foundPrompt then
         VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, game)
         task.wait(0.1)
@@ -56,7 +54,7 @@ local function interact()
     task.wait(INTERACT_DELAY)
 end
 
--- [[ AGGRESSIVE OBJECT FINDER ]] --
+-- [[ STRICT OBJECT FILTERING ]] --
 local function scanWorkspace()
     local batteries = {}
     local deposits = {}
@@ -65,13 +63,12 @@ local function scanWorkspace()
         if obj:IsA("BasePart") then
             local lowerName = string.lower(obj.Name)
             
-            -- Detect Batteries
-            if string.find(lowerName, "battery") and not string.find(lowerName, "deposit") and not obj:IsDescendantOf(Character) then
-                table.insert(batteries, obj)
-            
-            -- Detect Deposit/UFO Station
-            elseif string.find(lowerName, "deposit") or string.find(lowerName, "ufo") or string.find(lowerName, "ship") or string.find(lowerName, "generator") then
-                table.insert(deposits, obj)
+            if not obj:IsDescendantOf(Character) and not Players:GetPlayerFromCharacter(obj.Parent) then
+                if string.find(lowerName, "battery") and not string.find(lowerName, "deposit") and not string.find(lowerName, "zone") then
+                    table.insert(batteries, obj)
+                elseif string.find(lowerName, "deposit") or string.find(lowerName, "ufo") or string.find(lowerName, "ship") or string.find(lowerName, "generator") then
+                    table.insert(deposits, obj)
+                end
             end
         end
     end
@@ -80,47 +77,63 @@ end
 
 -- [[ MAIN EXECUTION ]] --
 local function run()
-    print("[Script Active] Scanning for game objects...")
+    print("[Script Active] Strictly prioritizing Battery collection first.")
     
     while true do
         local batteries, deposits = scanWorkspace()
         
-        -- Check if player is holding a battery (checking tool or model inside character)
-        local holdingBattery = Character:FindFirstChild("Battery") or Character:FindFirstChildOfClass("Tool")
-        
-        if not holdingBattery and #batteries > 0 then
-            -- Target closest or first found battery part
-            local targetBattery = batteries[1]
-            print("Battery spotted! Forcing teleport to: " .. targetBattery:GetFullName())
-            
-            hardTeleport(targetBattery.CFrame)
-            interact()
-            
-        elseif #deposits > 0 then
-            -- Randomly select a deposit station from found parts
-            local targetDeposit = deposits[math.random(1, #deposits)]
-            print("Deposit station spotted! Forcing teleport to: " .. targetDeposit:GetFullName())
-            
-            hardTeleport(targetDeposit.CFrame)
-            interact()
-            
-            -- Tracker Logic
-            if not depositTracker[targetDeposit] then
-                depositTracker[targetDeposit] = 0
+        -- STATE 1: Look ONLY for a battery
+        if CURRENT_STATE == "HUNTING" then
+            if #batteries > 0 then
+                local targetBattery = batteries[1]
+                print("State: HUNTING -> Battery spotted! Teleporting...")
+                
+                hardTeleport(targetBattery.CFrame)
+                interact()
+                
+                CURRENT_STATE = "DEPOSITING"
+                print("State Changed -> DEPOSITING")
+            else
+                print("State: HUNTING -> Waiting for a battery to spawn...")
             end
-            depositTracker[targetDeposit] = depositTracker[targetDeposit] + 1
             
-            if depositTracker[targetDeposit] >= 2 then
-                local randomDelay = math.random(3, 5)
-                print("Successfully deposited 2 batteries here! Pausing script for " .. randomDelay .. " seconds.")
-                task.wait(randomDelay)
-                depositTracker[targetDeposit] = 0 -- Reset
+        -- STATE 2: Look ONLY for a deposit station
+        elseif CURRENT_STATE == "DEPOSITING" then
+            if #deposits > 0 then
+                local targetDeposit = deposits[math.random(1, #deposits)]
+                print("State: DEPOSITING -> Station spotted! Teleporting...")
+                
+                hardTeleport(targetDeposit.CFrame)
+                interact()
+                
+                -- Track successful drop-offs on this station
+                if not depositTracker[targetDeposit] then
+                    depositTracker[targetDeposit] = 0
+                end
+                depositTracker[targetDeposit] = depositTracker[targetDeposit] + 1
+                
+                -- Lock position logic if 2 batteries hit this station
+                if depositTracker[targetDeposit] >= 2 then
+                    local randomDelay = math.random(3, 5)
+                    print("2 batteries deposited here! Locking position for " .. randomDelay .. " seconds.")
+                    
+                    -- Physically freeze the character in place
+                    HumanoidRootPart.Anchored = true
+                    task.wait(randomDelay)
+                    HumanoidRootPart.Anchored = false
+                    
+                    depositTracker[targetDeposit] = 0 
+                end
+                
+                CURRENT_STATE = "HUNTING"
+                print("State Changed -> HUNTING")
+            else
+                print("State: DEPOSITING -> No deposit stations found in workspace!")
+                CURRENT_STATE = "HUNTING" 
             end
-        else
-            print("Searching... active objects could not be identified in the Workspace structure.")
         end
         
-        task.wait(1.5)
+        task.wait(1.0)
     end
 end
 
