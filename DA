@@ -10,7 +10,7 @@ local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 local GrabBatteryRemote = Remotes:WaitForChild("GrabBatteryRemote")
 local UseBatteryOnCrateRemote = Remotes:WaitForChild("UseBatteryOnCrateRemote")
 
--- Targets
+-- Targets Container
 local Terrain = Workspace:WaitForChild("Terrain")
 
 -- Helper function to safely teleport the character
@@ -19,9 +19,8 @@ local function teleportTo(attachment)
     local rootPart = character and character:FindFirstChild("HumanoidRootPart")
     
     if rootPart and attachment then
-        -- Teleport slightly above the attachment position to prevent clipping
         rootPart.CFrame = CFrame.new(attachment.WorldPosition + Vector3.new(0, 2, 0))
-        task.wait(0.1) -- Small delay to allow physics/position to sync
+        task.wait(0.1) -- Sync physics
         return true
     end
     return false
@@ -30,26 +29,33 @@ end
 -- Main Automation Loop
 task.spawn(function()
     while true do
-        -- 1. Grab Battery
+        -- Find targets dynamically each loop
         local batteryAttachment = Terrain:FindFirstChild("BatterySpawnAttachment")
+        local crateAttachment = Terrain:FindFirstChild("EggCrateSpawnAttachment")
+
+        -- 1. Only teleport/interact if the Battery exists
         if batteryAttachment then
-            print("Teleporting to Battery...")
+            print("Battery found! Teleporting...")
             if teleportTo(batteryAttachment) then
                 GrabBatteryRemote:FireServer(batteryAttachment)
-                task.wait(0.5) -- Cooldown after picking up
+                task.wait(0.5)
             end
+        else
+            print("No battery detected. Skipping teleport.")
         end
 
-        -- 2. Deposit Battery into Crate
-        local crateAttachment = Terrain:FindFirstChild("EggCrateSpawnAttachment")
+        -- 2. Only teleport/interact if the Deposit Crate exists
         if crateAttachment then
-            print("Teleporting to Deposit Crate...")
+            print("Deposit crate found! Teleporting...")
             if teleportTo(crateAttachment) then
                 UseBatteryOnCrateRemote:FireServer(crateAttachment)
-                task.wait(0.5) -- Cooldown after depositing
+                task.wait(0.5)
             end
+        else
+            print("No deposit crate detected. Skipping teleport.")
         end
 
-        task.wait(1) -- Loop throttle to prevent crashes
+        -- Yield to prevent high CPU usage/crashing
+        task.wait(1) 
     end
 end)
