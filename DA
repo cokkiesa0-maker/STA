@@ -1,8 +1,8 @@
 -- [[ CONFIGURATION ]] --
 local INTERACT_DELAY = 0.8 
-local DETECT_RADIUS = 15 
-local POST_DEPOSIT_WAIT = 3 -- Strict 3-second freeze lock
-local MOUNT_KEY = Enum.KeyCode.R -- Standard mount/ride key for Dragon Adventures
+local DETECT_RADIUS = 20 -- Slightly increased to account for larger dragon hitboxes
+local POST_DEPOSIT_WAIT = 3 
+local MOUNT_KEY = Enum.KeyCode.R 
 
 -- [[ SERVICES ]] --
 local Players = game:GetService("Players")
@@ -23,60 +23,83 @@ LocalPlayer.CharacterAdded:Connect(function(newCharacter)
     CURRENT_STATE = "HUNTING" 
 end)
 
--- [[ DRAGON MOUNT CHECKER ]] --
-local function ensureMounted()
-    if not Humanoid then return end
+-- [[ DRAGON MOUNT CHECKER & GETTER ]] --
+local function getDragonAndSeat()
+    if not Humanoid then return nil, nil end
     
-    -- In Roblox games like Dragon Adventures, being mounted changes your SeatState 
-    -- or puts your character inside a specific platform/running state.
-    if Humanoid.FloorMaterial == Enum.Material.Air and Humanoid:GetState() == Enum.HumanoidStateType.Seated then
-        return -- Already riding/seated on the dragon
-    end
-    
-    -- Alternate check: if the game welds your HumanoidRootPart to a dragon model
-    local isWeldedToDragon = false
-    for _, child in ipairs(HumanoidRootPart:GetChildren()) do
-        if child:IsA("Weld") or child:IsA("Snap") or child:IsA("ManualWeld") then
-            if child.Part1 and (string.find(string.lower(child.Part1.Name), "dragon") or string.find(string.lower(child.Part1.Name), "saddle")) then
-                isWeldedToDragon = true
-                break
+    -- Check if the player is currently sitting in a vehicle/saddle seat
+    if Humanoid.SeatPart and Humanoid.SeatPart:IsA("Seat") then
+        local seat = Humanoid.SeatPart
+        -- Walk up the hierarchy to find the dragon model
+        local current = seat.Parent
+        while current and current ~= workspace do
+            if current:IsA("Model") and (string.find(string.lower(current.Name), "dragon") or current:FindFirstChild("Humanoid")) then
+                return current, seat
             end
+            current = current.Parent
         end
+        return seat.Parent, seat -- Fallback to immediate parent if specific name isn't found
     end
-    
-    if isWeldedToDragon then return end
+    return nil, nil
+end
 
-    -- Force Mount if validation checks fail
-    print("[Mount Manager] Character is on foot! Forcing dragon mount...")
+local function ensureMounted()
+    local dragon, _ = getDragonAndSeat()
+    if dragon then return true end -- Already safely riding
+    
+    print("[Mount Manager] On foot. Attempting to mount dragon...")
     VirtualInputManager:SendKeyEvent(true, MOUNT_KEY, false, game)
     task.wait(0.1)
     VirtualInputManager:SendKeyEvent(false, MOUNT_KEY, false, game)
-    task.wait(1.5) -- Give the game ample time to complete the mounting animation
+    task.wait(1.5) -- Wait for mount animation to complete
+    
+    dragon, _ = getDragonAndSeat()
+    return dragon ~= nil
 end
 
--- [[ ANTI-RUBBERBAND TELEPORT ]] --
+-- [[ FIXED TELEPORT (NO DISMOUNT) ]] --
 local function safeTeleport(targetCFrame)
     if not HumanoidRootPart or not Humanoid then return end
     
-    -- Ensure you are on your dragon before moving across the map
+    -- Make sure we are mounted before doing anything
     ensureMounted()
     
-    -- Force-kill character velocity and physics to prevent snap-backs
-    HumanoidRootPart.Anchored = false 
-    Humanoid:ChangeState(Enum.HumanoidStateType.Physics)
-    HumanoidRootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-    HumanoidRootPart.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+    local dragon, seat = getDragonAndSeat()
+    local offset = CFrame.new(0, 5, 0) -- Higher offset to stop dragon from getting stuck in the ground
     
-    -- Execute instant CFrame snap slightly above target
-    HumanoidRootPart.CFrame = targetCFrame * CFrame.new(0, 4, 0) -- Raised slightly higher for dragon clearance
+    if dragon then
+        -- [[ DRAGON MOVEMENT MODE ]] --
+        -- If we are riding, do NOT touch Humanoid states or change individual velocities.
+        -- Instead, teleport the entire dragon model as one cohesive unit.
+        print("[Teleport] Moving dragon and player together...")
+        
+        local dragonRoot = dragon.PrimaryPart or seat or dragon:FindFirstChildWithClass("BasePart")
+        if dragonRoot then
+            dragonRoot.AssemblyLinearVelocity = Vector3.new(0,0,0)
+            dragonRoot.AssemblyAngularVelocity = Vector3.new(0,0,0)
+        end
+        
+        dragon:PivotTo(targetCFrame * offset)
+        task.wait(0.2)
+        
+        if dragonRoot then
+            dragonRoot.AssemblyLinearVelocity = Vector3.new(0,0,0)
+        end
+    else
+        -- [[ FALLBACK FOOT MOVEMENT MODE ]] --
+        -- Used only if your dragon isn't spawned or fails to mount
+        print("[Teleport] Fallback player-only teleport...")
+        HumanoidRootPart.Anchored = false 
+        Humanoid:ChangeState(Enum.HumanoidStateType.Physics)
+        HumanoidRootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+        HumanoidRootPart.CFrame = targetCFrame * CFrame.new(0, 2, 0)
+        
+        task.wait(0.1)
+        HumanoidRootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+        Humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+    end
     
-    -- Post-teleport clamp to firmly establish new coordinates server-side
-    task.wait(0.1)
-    HumanoidRootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-    HumanoidRootPart.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-    Humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
-    
-    task.wait(0.3) -- Synchronization window to let game server stabilize your position
+    task.wait(0.3) -- Server sync pause
 end
 
 -- [[ AUTOMATED INTERACTION ]] --
@@ -112,11 +135,17 @@ local function scanWorkspace()
         if obj:IsA("BasePart") then
             local lowerName = string.lower(obj.Name)
             
+            -- Make sure script doesn't try to target parts belonging to your own dragon/character
             if not obj:IsDescendantOf(Character) and not Players:GetPlayerFromCharacter(obj.Parent) then
-                if string.find(lowerName, "battery") and not string.find(lowerName, "deposit") and not string.find(lowerName, "zone") then
-                    table.insert(batteries, obj)
-                elseif string.find(lowerName, "deposit") or string.find(lowerName, "ufo") or string.find(lowerName, "ship") or string.find(lowerName, "generator") then
-                    table.insert(deposits, obj)
+                local dragon, _ = getDragonAndSeat()
+                if not (dragon and obj:IsDescendantOf(dragon)) then
+                    
+                    if string.find(lowerName, "battery") and not string.find(lowerName, "deposit") and not string.find(lowerName, "zone") then
+                        table.insert(batteries, obj)
+                    elseif string.find(lowerName, "deposit") or string.find(lowerName, "ufo") or string.find(lowerName, "ship") or string.find(lowerName, "generator") then
+                        table.insert(deposits, obj)
+                    end
+                    
                 end
             end
         end
@@ -126,7 +155,7 @@ end
 
 -- [[ CORE REPEATING LOOP ]] --
 local function run()
-    print("[Script Active] Auto-Ride Dragon validation enabled with teleport tracking.")
+    print("[Script Active] Mounted teleport loops active. Dismount protections enabled.")
     
     while true do
         local batteries, deposits = scanWorkspace()
@@ -135,7 +164,7 @@ local function run()
         if CURRENT_STATE == "HUNTING" then
             if #batteries > 0 then
                 local targetBattery = batteries[1]
-                print("State: HUNTING -> Verifying mount and teleporting to Battery...")
+                print("State: HUNTING -> Teleporting on dragon to Battery...")
                 
                 safeTeleport(targetBattery.CFrame)
                 interact()
@@ -146,32 +175,4 @@ local function run()
                 print("State: HUNTING -> Awaiting battery respawn...")
             end
             
-        -- STATE 2: Find Deposit Ship
-        elseif CURRENT_STATE == "DEPOSITING" then
-            if #deposits > 0 then
-                local targetDeposit = deposits[math.random(1, #deposits)]
-                print("State: DEPOSITING -> Verifying mount and teleporting to Station...")
-                
-                safeTeleport(targetDeposit.CFrame)
-                interact()
-                
-                -- [[ POST-DEPOSIT ANCHOR LOCK ]] --
-                print("Drop-off finished! Anchoring dragon and character for " .. POST_DEPOSIT_WAIT .. " seconds.")
-                HumanoidRootPart.Anchored = true
-                task.wait(POST_DEPOSIT_WAIT)
-                HumanoidRootPart.Anchored = false
-                print("Character unanchored successfully.")
-                
-                CURRENT_STATE = "HUNTING"
-                print("State Shift -> HUNTING")
-            else
-                print("State: DEPOSITING -> No valid targets found. Resetting state.")
-                CURRENT_STATE = "HUNTING" 
-            end
-        end
-        
-        task.wait(0.5)
-    end
-end
-
-pcall(run)
+        -- STATE 2
