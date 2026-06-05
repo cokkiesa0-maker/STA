@@ -10,27 +10,22 @@ local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 local GrabBatteryRemote = Remotes:WaitForChild("GrabBatteryRemote")
 local UseBatteryRemote = Remotes:WaitForChild("UseBatteryOnPowerCellRemote")
 
--- Base folder path for the objective
-local ObjectiveFolder = Workspace:WaitForChild("Interactions")
-    :WaitForChild("EventGalaxy")
-    :WaitForChild("PowerShipObjective")
-    :WaitForChild("PowerLineB")
-    :WaitForChild("BatteryDeposit_B")
+-- Global toggle
+_G.AutoBattery = true
 
--- Safely search for the power cell attachment without freezing
--- This uses a 5-second timeout and looks through descendants if needed
-local PowerCellAttachment = ObjectiveFolder:FindFirstChild("ShipPowerCellAttachment", true) 
-local BatteryAttachment = Workspace:WaitForChild("Terrain"):WaitForChild("BatterySpawnAttachment", 5)
+-- Function to safely find objects anywhere in the workspace
+local function findObject(name)
+    return Workspace:FindFirstChild(name, true)
+end
 
 -- Function to safely teleport the player
 local function teleportTo(targetInstance)
     if not targetInstance then return false end
     
     local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-    local rootPart = character:WaitForChild("HumanoidRootPart", 5)
+    local rootPart = character:WaitForChild("HumanoidRootPart", 2)
     
     if rootPart then
-        -- Handle both Attachments (WorldCFrame) and Parts (CFrame)
         local targetCFrame = targetInstance:IsA("Attachment") and targetInstance.WorldCFrame or targetInstance.CFrame
         rootPart.CFrame = targetCFrame * CFrame.new(0, 2, 0)
         task.wait(0.2)
@@ -40,44 +35,37 @@ local function teleportTo(targetInstance)
 end
 
 -- Main Automation Loop
-_G.AutoBattery = true
-
 task.spawn(function()
-    print("Auto-Battery Script Started!")
+    print("[Auto] Absolute Path Script Started!")
     
     while _G.AutoBattery do
-        -- Double check paths if they weren't found initially
-        if not PowerCellAttachment then
-            PowerCellAttachment = ObjectiveFolder:FindFirstChild("ShipPowerCellAttachment", true)
-        end
-        if not BatteryAttachment then
-            BatteryAttachment = Workspace:WaitForChild("Terrain"):FindFirstChild("BatterySpawnAttachment")
-        end
-
-        -- 1. Grab Battery Process
-        if BatteryAttachment then
-            print("Teleporting to Battery...")
-            if teleportTo(BatteryAttachment) then
-                GrabBatteryRemote:FireServer(BatteryAttachment)
+        -- Dynamically locate targets anywhere in the game world
+        local battery = findObject("BatterySpawnAttachment")
+        local deposit = findObject("ShipPowerCellAttachment")
+        
+        -- 1. Grab Battery
+        if battery then
+            print("[Auto] Moving to Battery...")
+            if teleportTo(battery) then
+                GrabBatteryRemote:FireServer(battery)
                 task.wait(0.5)
             end
         else
-            warn("Battery Spawn Attachment not found in Workspace.Terrain!")
+            warn("[Auto] BatterySpawnAttachment not found anywhere in Workspace!")
         end
         
-        -- 2. Deposit Battery Process
-        if PowerCellAttachment then
-            print("Teleporting to Power Cell...")
-            if teleportTo(PowerCellAttachment) then
-                UseBatteryRemote:FireServer(PowerCellAttachment)
+        -- 2. Deposit Battery
+        if deposit then
+            print("[Auto] Moving to Deposit...")
+            if teleportTo(deposit) then
+                UseBatteryRemote:FireServer(deposit)
                 task.wait(1)
             end
         else
-            warn("ShipPowerCellAttachment could not be found inside BatteryDeposit_B!")
-            task.wait(2) -- Wait a bit before checking again to prevent log spam
+            warn("[Auto] ShipPowerCellAttachment not found anywhere in Workspace!")
         end
         
         task.wait(0.5)
     end
-    print("Auto-Battery Script Stopped.")
+    print("[Auto] Script Stopped.")
 end)
