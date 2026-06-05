@@ -1,114 +1,94 @@
--- Services
+--// Configuration
+local TWEEN_SPEED = 100 -- Studs per second (Adjust if you get kicked for teleporting)
+local DEPOSIT_DELAY = 3 -- Seconds to wait/lock position after depositing
+
+--// Services & Player Details
+local TweenService = game:GetService("TweenService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Workspace = game:GetService("Workspace")
-
--- Configuration
 local LocalPlayer = Players.LocalPlayer
-local Remotes = ReplicatedStorage:WaitForChild("Remotes")
-local GrabBattery = Remotes:WaitForChild("GrabBatteryRemote")
-local UseBattery = Remotes:WaitForChild("UseBatteryOnCrateRemote")
-local Terrain = Workspace:WaitForChild("Terrain")
 
--- Wait for Map and Assets to Load Completely
-local function waitForGameToLoad()
-    print("[Loader] Waiting for game instance and character to load...")
-    if not game:IsLoaded() then
-        game.Loaded:Wait()
-    end
-    
+--// Remotes
+local GrabBatteryRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("GrabBatteryRemote")
+local UseBatteryOnCrateRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("UseBatteryOnCrateRemote")
+
+--// Safely get targets from Workspace
+local Terrain = workspace:WaitForChild("Terrain")
+local Battery = Terrain:WaitForChild("BatterySpawnAttachment")
+local EggCrate = Terrain:WaitForChild("EggCrateSpawnAttachment")
+
+--// Utility Function: Bypass standard teleports using Tweening (Prevents rubberbanding)
+local function teleportTo(targetAttachment)
     local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-    character:WaitForChild("HumanoidRootPart")
-    character:WaitForChild("Humanoid")
-
-    local battery = nil
-    local deposit = nil
-    local retries = 0
-    local maxRetries = 30
-
-    while not (battery and deposit) and retries < maxRetries do
-        battery = Terrain:FindFirstChild("BatterySpawnAttachment")
-        deposit = Terrain:FindFirstChild("EggCrateSpawnAttachment")
-        
-        if battery and deposit then break end
-        retries = retries + 1
-        task.wait(1)
-    end
-
-    if battery and deposit then
-        print("[Loader] Setup complete. Map targets verified.")
-        return battery, deposit
-    else
-        warn("[Loader] Failed to find target attachments within timeframe.")
-        return nil, nil
-    end
-end
-
--- Physics-Based Movement Function (Avoids CFrame)
-local function navigateToTarget(targetAttachment)
-    local character = LocalPlayer.Character
-    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-    local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+    local rootPart = character:WaitForChild("HumanoidRootPart")
     
-    if humanoid and rootPart and targetAttachment then
-        -- Optional: Slightly increase speed if the game allows configuration modifying WalkSpeed
-        -- humanoid.WalkSpeed = 32 
-
-        -- Command the character's physics engine to navigate to the target vector position
-        humanoid:MoveTo(targetAttachment.Position)
+    if targetAttachment and rootPart then
+        local targetCFrame = CFrame.new(targetAttachment.WorldPosition)
+        local distance = (rootPart.Position - targetAttachment.WorldPosition).Magnitude
+        local duration = distance / TWEEN_SPEED
         
-        -- Yield the script until the character physically arrives at the target point
-        -- Includes an absolute 15-second safety timeout so the loop doesn't freeze indefinitely
-        local reached = nil
-        local timeout = task.delay(15, function()
-            if not reached then
-                humanoid:MoveTo(rootPart.Position) -- Cancel movement if stuck
-            end
-        end)
-        
-        humanoid.MoveToFinished:Wait()
-        reached = true
-        task.cancel(timeout)
-        
-        task.wait(0.2) -- Brief pause to ensure physics fully settle on the server
-        return true
+        local tween = TweenService:Create(rootPart, TweenInfo.new(duration, Enum.EasingStyle.Linear), {CFrame = targetCFrame})
+        tween:Play()
+        tween.Completed:Wait()
     end
-    return false
 end
 
--- Main Automation Loop
-local function startAutoFarm()
-    local battery, deposit = waitForGameToLoad()
-    if not (battery and deposit) then return end
-
-    while true do
-        -- 1. Navigate to Battery & Grab
-        print("[Farm] Navigating to Battery...")
-        if navigateToTarget(battery) then
-            GrabBattery:FireServer(battery)
-            task.wait(0.5) -- Time for server verification
+--// Utility Function: Lock character position
+local function anchorCharacter(state)
+    local character = LocalPlayer.Character
+    if character then
+        local rootPart = character:FindFirstChild("HumanoidRootPart")
+        if rootPart then
+            rootPart.Anchored = state
         end
+    end
+end
 
-        -- 2. Navigate to Deposit & Use
-        print("[Farm] Navigating to Deposit...")
-        if navigateToTarget(deposit) then
-            UseBattery:FireServer(deposit)
+--// FEATURE 1 & 2: Auto Battery Grab & Deposit Loop
+task.spawn(function()
+    while true do
+        pcall(function()
+            -- 1. Teleport to Battery and Grab it
+            teleportTo(Battery)
+            task.wait(0.1)
+            GrabBatteryRemote:FireServer(Battery)
             task.wait(0.2)
             
-            -- 3. Lock Position for 3 Seconds
-            local character = LocalPlayer.Character
-            local rootPart = character and character:FindFirstChild("HumanoidRootPart")
-            if rootPart then
-                print("[Farm] Locking character at deposit...")
-                rootPart.Anchored = true
-                task.wait(3)
-                rootPart.Anchored = false
-                print("[Farm] Position unlocked.")
-            end
-        end
-        
-        task.wait(1) -- Safety cooldown between farm cycles
+            -- 2. Teleport to Crate and Deposit it
+            teleportTo(EggCrate)
+            task.wait(0.1)
+            UseBatteryOnCrateRemote:FireServer(EggCrate)
+            
+            -- 3. Lock position and wait 3 seconds (Bypasses running or snapping back)
+            anchorCharacter(true)
+            task.wait(DEPOSIT_DELAY)
+            anchorCharacter(false)
+        end)
+        task.wait(0.5) -- Small cooldown before restarting the loop
     end
-end
+end)
 
-task.spawn(startAutoFarm)
+--// FEATURE 3: Instant Ore Block Destroyer via Dragon Breath
+task.spawn(function()
+    while true do
+        pcall(function()
+            local character = LocalPlayer.Character
+            if character then
+                local dragonsFolder = character:FindFirstChild("Dragons")
+                if dragonsFolder then
+                    -- Dynamically find whichever dragon is currently active/equipped
+                    for _, dragon in ipairs(dragonsFolder:GetChildren()) do
+                        local remotes = dragon:FindFirstChild("Remotes")
+                        local breathRemote = remotes and remotes:FindFirstChild("BreathFireRemote")
+                        
+                        if breathRemote then
+                            -- Spams the server with the breath execution to break blocks instantly
+                            breathRemote:FireServer(false)
+                        end
+                    end
+                end
+            end
+        end)
+        task.wait(0.05) -- Fast fire rate for instant destruction
+    end
+end)
