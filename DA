@@ -1,10 +1,12 @@
 -- [[ CONFIGURATION ]] --
+local TWEEN_SPEED = 45 -- Studs per second. Lower is safer/more natural; higher is faster.
 local INTERACT_DELAY = 0.8 
 local DETECT_RADIUS = 15 
 local POST_DEPOSIT_WAIT = 3 -- Strict 3-second lock time
 
 -- [[ SERVICES ]] --
 local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 
 local LocalPlayer = Players.LocalPlayer
@@ -20,13 +22,25 @@ LocalPlayer.CharacterAdded:Connect(function(newCharacter)
     CURRENT_STATE = "HUNTING" 
 end)
 
--- [[ FORCE TELEPORT ]] --
-local function hardTeleport(targetCFrame)
+-- [[ TWEEN MOVEMENT ]] --
+local function safeTween(targetCFrame)
     if not HumanoidRootPart then return end
+    
+    -- Ensure player is unanchored before trying to move
     HumanoidRootPart.Anchored = false 
     HumanoidRootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-    HumanoidRootPart.CFrame = targetCFrame * CFrame.new(0, 2, 0)
-    task.wait(0.4) 
+    
+    -- Calculate duration based on distance to keep speed constant
+    local distance = (HumanoidRootPart.Position - targetCFrame.Position).Magnitude
+    local duration = distance / TWEEN_SPEED
+    
+    -- Smooth linear movement profile
+    local tweenInfo = TweenInfo.new(duration, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut)
+    local tween = TweenService:Create(HumanoidRootPart, tweenInfo, {CFrame = targetCFrame * CFrame.new(0, 2, 0)})
+    
+    tween:Play()
+    tween.Completed:Wait() -- Wait until character completely arrives
+    task.wait(0.2) 
 end
 
 -- [[ INTERACTION ]] --
@@ -76,7 +90,7 @@ end
 
 -- [[ MAIN EXECUTION ]] --
 local function run()
-    print("[Script Active] Strictly prioritizing Battery collection first.")
+    print("[Script Active] Tween configuration active. Hunting mode initiated.")
     
     while true do
         local batteries, deposits = scanWorkspace()
@@ -85,9 +99,9 @@ local function run()
         if CURRENT_STATE == "HUNTING" then
             if #batteries > 0 then
                 local targetBattery = batteries[1]
-                print("State: HUNTING -> Battery spotted! Teleporting...")
+                print("State: HUNTING -> Tweening to Battery...")
                 
-                hardTeleport(targetBattery.CFrame)
+                safeTween(targetBattery.CFrame)
                 interact()
                 
                 CURRENT_STATE = "DEPOSITING"
@@ -100,9 +114,9 @@ local function run()
         elseif CURRENT_STATE == "DEPOSITING" then
             if #deposits > 0 then
                 local targetDeposit = deposits[math.random(1, #deposits)]
-                print("State: DEPOSITING -> Station spotted! Teleporting...")
+                print("State: DEPOSITING -> Tweening to Station...")
                 
-                hardTeleport(targetDeposit.CFrame)
+                safeTween(targetDeposit.CFrame)
                 interact()
                 
                 -- [[ LOCK POSITION AFTER DEPOSIT ]] --
@@ -110,7 +124,7 @@ local function run()
                 HumanoidRootPart.Anchored = true
                 task.wait(POST_DEPOSIT_WAIT)
                 HumanoidRootPart.Anchored = false
-                print("Unlocks position. Continuing loop.")
+                print("Unanchored. Resuming.")
                 
                 CURRENT_STATE = "HUNTING"
                 print("State Changed -> HUNTING")
@@ -120,7 +134,7 @@ local function run()
             end
         end
         
-        task.wait(1.0)
+        task.wait(0.5)
     end
 end
 
