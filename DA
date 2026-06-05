@@ -8,55 +8,68 @@ local LocalPlayer = Players.LocalPlayer
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 local GrabBattery = Remotes:WaitForChild("GrabBatteryRemote")
 local UseBattery = Remotes:WaitForChild("UseBatteryOnCrateRemote")
-
--- Target Attachments/Positions
 local Terrain = Workspace:WaitForChild("Terrain")
-local BatteryAttachment = Terrain:WaitForChild("BatterySpawnAttachment")
-local CrateAttachment = Terrain:WaitForChild("EggCrateSpawnAttachment")
 
--- Helper function to safely teleport the character
+-- Scan Function
+local function scanForTargets()
+    print("Scanning for Battery and Deposit...")
+    
+    -- 5-second timeout to look for the attachments
+    local battery = Terrain:WaitForChild("BatterySpawnAttachment", 5)
+    local deposit = Terrain:WaitForChild("EggCrateSpawnAttachment", 5)
+    
+    if battery and deposit then
+        print("Scan successful! Both targets found.")
+        return battery, deposit
+    else
+        warn("Scan failed. One or both targets are missing from Workspace.")
+        return nil, nil
+    end
+end
+
+-- Teleport Helper
 local function teleportTo(targetAttachment)
     local character = LocalPlayer.Character
     local rootPart = character and character:FindFirstChild("HumanoidRootPart")
     
     if rootPart and targetAttachment then
-        -- Teleport slightly above the attachment to avoid clipping
         rootPart.CFrame = targetAttachment.CFrame * CFrame.new(0, 2, 0)
-        task.wait(0.2) -- Small delay to allow physics/position to sync
+        task.wait(0.2)
         return true
     end
     return false
 end
 
--- Main Automation Function
+-- Main Automation
 local function startAutoFarm()
+    -- Perform initial scan
+    local battery, deposit = scanForTargets()
+    if not (battery and deposit) then return end
+
     while true do
-        -- 1. Teleport to Battery and Interact
-        if teleportTo(BatteryAttachment) then
-            GrabBattery:FireServer(BatteryAttachment)
-            task.wait(0.5) -- Wait for server to process the grab
+        -- 1. Teleport to Battery
+        if teleportTo(battery) then
+            GrabBattery:FireServer(battery)
+            task.wait(0.5)
         end
 
-        -- 2. Teleport to Battery Deposit (Crate) and Interact
-        if teleportTo(CrateAttachment) then
-            UseBattery:FireServer(CrateAttachment)
-            task.wait(0.2) -- Wait for server to process the deposit
+        -- 2. Teleport to Deposit
+        if teleportTo(deposit) then
+            UseBattery:FireServer(deposit)
+            task.wait(0.2)
             
-            -- 3. Lock position at the deposit for 3 seconds
+            -- 3. Lock Position for 3 seconds
             local character = LocalPlayer.Character
             local rootPart = character and character:FindFirstChild("HumanoidRootPart")
-            
             if rootPart then
-                -- Anchor the root part to lock position
                 rootPart.Anchored = true
                 task.wait(3)
                 rootPart.Anchored = false
             end
         end
         
-        task.wait(0.5) -- Small cooldown before restarting the loop
+        task.wait(0.5)
     end
 end
 
--- Start the script
 task.spawn(startAutoFarm)
