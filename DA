@@ -1,5 +1,5 @@
 -- [[ CONFIGURATION ]] --
-local TWEEN_SPEED = 30 -- Adjusted to 30 studs per second for a safer, more stable glide.
+local TWEEN_SPEED = 30 -- Strict 30 studs per second
 local INTERACT_DELAY = 0.8 
 local DETECT_RADIUS = 15 
 local POST_DEPOSIT_WAIT = 3 -- Strict 3-second freeze lock
@@ -12,6 +12,7 @@ local VirtualInputManager = game:GetService("VirtualInputManager")
 local LocalPlayer = Players.LocalPlayer
 local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
 local HumanoidRootPart = Character:WaitForChild("HumanoidRootPart")
+local Humanoid = Character:WaitForChild("Humanoid")
 
 -- State tracking
 local CURRENT_STATE = "HUNTING"
@@ -19,28 +20,41 @@ local CURRENT_STATE = "HUNTING"
 LocalPlayer.CharacterAdded:Connect(function(newCharacter)
     Character = newCharacter
     HumanoidRootPart = newCharacter:WaitForChild("HumanoidRootPart")
+    Humanoid = newCharacter:WaitForChild("Humanoid")
     CURRENT_STATE = "HUNTING" 
 end)
 
--- [[ PURE TWEEN MOVEMENT ]] --
+-- [[ ANTI-RUBBERBAND TWEEN MOVEMENT ]] --
 local function safeTween(targetCFrame)
-    if not HumanoidRootPart then return end
+    if not HumanoidRootPart or not Humanoid then return end
     
-    -- Ensure player is unanchored before trying to move
+    -- Force-kill all character physics/movement states to stop rubberbands
     HumanoidRootPart.Anchored = false 
+    Humanoid:ChangeState(Enum.HumanoidStateType.Physics)
     HumanoidRootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+    HumanoidRootPart.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
     
-    -- Calculate duration dynamically based on distance to maintain fixed speed
+    -- Calculate fixed-speed duration
     local distance = (HumanoidRootPart.Position - targetCFrame.Position).Magnitude
     local duration = distance / TWEEN_SPEED
     
-    -- Smooth linear movement profile
     local tweenInfo = TweenInfo.new(duration, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut)
     local tween = TweenService:Create(HumanoidRootPart, tweenInfo, {CFrame = targetCFrame * CFrame.new(0, 2, 0)})
     
     tween:Play()
-    tween.Completed:Wait() -- Pauses code execution until the character physically arrives
-    task.wait(0.2) 
+    
+    -- Keep killing velocity WHILE tweening to bypass anti-cheat checks
+    while tween.PlaybackState == Enum.PlaybackState.Playing do
+        HumanoidRootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+        task.wait()
+    end
+    
+    -- Arrived! Clamp physics instantly to lock the position server-side
+    HumanoidRootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+    HumanoidRootPart.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+    Humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+    
+    task.wait(0.3) -- Critical synchronization pause to let the server catch up
 end
 
 -- [[ AUTOMATED INTERACTION ]] --
@@ -90,7 +104,7 @@ end
 
 -- [[ CORE REPEATING LOOP ]] --
 local function run()
-    print("[Script Active] Operating on pure Tween movement profiles (Speed: 30).")
+    print("[Script Active] Anti-rubberband patches applied. Speed locked at 30.")
     
     while true do
         local batteries, deposits = scanWorkspace()
@@ -99,7 +113,7 @@ local function run()
         if CURRENT_STATE == "HUNTING" then
             if #batteries > 0 then
                 local targetBattery = batteries[1]
-                print("State: HUNTING -> Gliding smoothly via Tween to Battery...")
+                print("State: HUNTING -> Tweening to Battery...")
                 
                 safeTween(targetBattery.CFrame)
                 interact()
@@ -114,7 +128,7 @@ local function run()
         elseif CURRENT_STATE == "DEPOSITING" then
             if #deposits > 0 then
                 local targetDeposit = deposits[math.random(1, #deposits)]
-                print("State: DEPOSITING -> Gliding smoothly via Tween to Station...")
+                print("State: DEPOSITING -> Tweening to Station...")
                 
                 safeTween(targetDeposit.CFrame)
                 interact()
