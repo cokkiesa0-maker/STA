@@ -2,7 +2,6 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
-local TweenService = game:GetService("TweenService")
 
 -- Configuration
 local LocalPlayer = Players.LocalPlayer
@@ -11,18 +10,16 @@ local GrabBattery = Remotes:WaitForChild("GrabBatteryRemote")
 local UseBattery = Remotes:WaitForChild("UseBatteryOnCrateRemote")
 local Terrain = Workspace:WaitForChild("Terrain")
 
--- Bypass Configuration
-local TRAVEL_SPEED = 180 -- Studs per second. Lower this if you still get rubberbanded.
-
 -- Wait for Map and Assets to Load Completely
 local function waitForGameToLoad()
-    print("[Loader] Waiting for game to load...")
+    print("[Loader] Waiting for game instance and character to load...")
     if not game:IsLoaded() then
         game.Loaded:Wait()
     end
     
     local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
     character:WaitForChild("HumanoidRootPart")
+    character:WaitForChild("Humanoid")
 
     local battery = nil
     local deposit = nil
@@ -39,35 +36,41 @@ local function waitForGameToLoad()
     end
 
     if battery and deposit then
-        print("[Loader] Setup complete. Ready to farm.")
+        print("[Loader] Setup complete. Map targets verified.")
         return battery, deposit
     else
-        warn("[Loader] Failed to find target attachments.")
+        warn("[Loader] Failed to find target attachments within timeframe.")
         return nil, nil
     end
 end
 
--- Server-Safe Bypass Teleport (Anti-Rubberband)
-local function safeTeleport(targetAttachment)
+-- Physics-Based Movement Function (Avoids CFrame)
+local function navigateToTarget(targetAttachment)
     local character = LocalPlayer.Character
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
     local rootPart = character and character:FindFirstChild("HumanoidRootPart")
     
-    if rootPart and targetAttachment then
-        local currentPosition = rootPart.Position
-        local targetPosition = targetAttachment.Position
-        local distance = (currentPosition - targetPosition).Magnitude
+    if humanoid and rootPart and targetAttachment then
+        -- Optional: Slightly increase speed if the game allows configuration modifying WalkSpeed
+        -- humanoid.WalkSpeed = 32 
+
+        -- Command the character's physics engine to navigate to the target vector position
+        humanoid:MoveTo(targetAttachment.Position)
         
-        -- Calculate dynamic duration based on safety speed
-        local duration = distance / TRAVEL_SPEED
-        local targetCFrame = targetAttachment.CFrame * CFrame.new(0, 2, 0)
+        -- Yield the script until the character physically arrives at the target point
+        -- Includes an absolute 15-second safety timeout so the loop doesn't freeze indefinitely
+        local reached = nil
+        local timeout = task.delay(15, function()
+            if not reached then
+                humanoid:MoveTo(rootPart.Position) -- Cancel movement if stuck
+            end
+        end)
         
-        local tweenInfo = TweenInfo.new(duration, Enum.EasingStyle.Linear)
-        local tween = TweenService:Create(rootPart, tweenInfo, {CFrame = targetCFrame})
+        humanoid.MoveToFinished:Wait()
+        reached = true
+        task.cancel(timeout)
         
-        tween:Play()
-        tween.Completed:Wait() -- Wait until the character physically arrives
-        
-        task.wait(0.15) -- Small physics settling buffer
+        task.wait(0.2) -- Brief pause to ensure physics fully settle on the server
         return true
     end
     return false
@@ -79,16 +82,16 @@ local function startAutoFarm()
     if not (battery and deposit) then return end
 
     while true do
-        -- 1. Travel to Battery & Grab
-        print("[Farm] Moving to Battery...")
-        if safeTeleport(battery) then
+        -- 1. Navigate to Battery & Grab
+        print("[Farm] Navigating to Battery...")
+        if navigateToTarget(battery) then
             GrabBattery:FireServer(battery)
-            task.wait(0.4) -- Time for server verification
+            task.wait(0.5) -- Time for server verification
         end
 
-        -- 2. Travel to Deposit & Use
-        print("[Farm] Moving to Deposit...")
-        if safeTeleport(deposit) then
+        -- 2. Navigate to Deposit & Use
+        print("[Farm] Navigating to Deposit...")
+        if navigateToTarget(deposit) then
             UseBattery:FireServer(deposit)
             task.wait(0.2)
             
@@ -96,7 +99,7 @@ local function startAutoFarm()
             local character = LocalPlayer.Character
             local rootPart = character and character:FindFirstChild("HumanoidRootPart")
             if rootPart then
-                print("[Farm] Locking position at deposit...")
+                print("[Farm] Locking character at deposit...")
                 rootPart.Anchored = true
                 task.wait(3)
                 rootPart.Anchored = false
@@ -104,7 +107,7 @@ local function startAutoFarm()
             end
         end
         
-        task.wait(0.5) -- Loop safety cooldown
+        task.wait(1) -- Safety cooldown between farm cycles
     end
 end
 
