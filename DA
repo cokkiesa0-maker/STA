@@ -1,6 +1,7 @@
 -- [[ CONFIGURATION ]] --
 local INTERACT_DELAY = 0.8 
 local DETECT_RADIUS = 15 
+local POST_DEPOSIT_WAIT = 3 -- Strict 3-second lock time
 
 -- [[ SERVICES ]] --
 local Players = game:GetService("Players")
@@ -12,7 +13,6 @@ local HumanoidRootPart = Character:WaitForChild("HumanoidRootPart")
 
 -- State tracking
 local CURRENT_STATE = "HUNTING"
-local depositTracker = {}
 
 LocalPlayer.CharacterAdded:Connect(function(newCharacter)
     Character = newCharacter
@@ -23,7 +23,6 @@ end)
 -- [[ FORCE TELEPORT ]] --
 local function hardTeleport(targetCFrame)
     if not HumanoidRootPart then return end
-    -- Safely ensure player isn't anchored before attempting movement
     HumanoidRootPart.Anchored = false 
     HumanoidRootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
     HumanoidRootPart.CFrame = targetCFrame * CFrame.new(0, 2, 0)
@@ -106,24 +105,12 @@ local function run()
                 hardTeleport(targetDeposit.CFrame)
                 interact()
                 
-                -- Track successful drop-offs on this station
-                if not depositTracker[targetDeposit] then
-                    depositTracker[targetDeposit] = 0
-                end
-                depositTracker[targetDeposit] = depositTracker[targetDeposit] + 1
-                
-                -- Lock position logic if 2 batteries hit this station
-                if depositTracker[targetDeposit] >= 2 then
-                    local randomDelay = math.random(3, 5)
-                    print("2 batteries deposited here! Locking position for " .. randomDelay .. " seconds.")
-                    
-                    -- Physically freeze the character in place
-                    HumanoidRootPart.Anchored = true
-                    task.wait(randomDelay)
-                    HumanoidRootPart.Anchored = false
-                    
-                    depositTracker[targetDeposit] = 0 
-                end
+                -- [[ LOCK POSITION AFTER DEPOSIT ]] --
+                print("Deposit finished! Locking position for " .. POST_DEPOSIT_WAIT .. " seconds.")
+                HumanoidRootPart.Anchored = true
+                task.wait(POST_DEPOSIT_WAIT)
+                HumanoidRootPart.Anchored = false
+                print("Unlocks position. Continuing loop.")
                 
                 CURRENT_STATE = "HUNTING"
                 print("State Changed -> HUNTING")
