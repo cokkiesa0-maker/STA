@@ -10,45 +10,74 @@ local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 local GrabBatteryRemote = Remotes:WaitForChild("GrabBatteryRemote")
 local UseBatteryRemote = Remotes:WaitForChild("UseBatteryOnPowerCellRemote")
 
--- Targets (From your provided paths)
-local BatteryAttachment = Workspace:WaitForChild("Terrain"):WaitForChild("BatterySpawnAttachment")
-local PowerCellAttachment = Workspace:WaitForChild("Interactions")
+-- Base folder path for the objective
+local ObjectiveFolder = Workspace:WaitForChild("Interactions")
     :WaitForChild("EventGalaxy")
     :WaitForChild("PowerShipObjective")
     :WaitForChild("PowerLineB")
     :WaitForChild("BatteryDeposit_B")
-    :WaitForChild("BatteryDepositMesh")
-    :WaitForChild("ShipPowerCellAttachment")
+
+-- Safely search for the power cell attachment without freezing
+-- This uses a 5-second timeout and looks through descendants if needed
+local PowerCellAttachment = ObjectiveFolder:FindFirstChild("ShipPowerCellAttachment", true) 
+local BatteryAttachment = Workspace:WaitForChild("Terrain"):WaitForChild("BatterySpawnAttachment", 5)
 
 -- Function to safely teleport the player
 local function teleportTo(targetInstance)
-    local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-    local rootPart = character:WaitForChild("HumanoidRootPart")
+    if not targetInstance then return false end
     
-    if rootPart and targetInstance then
-        -- Teleport slightly above the target to avoid clipping through the floor
-        rootPart.CFrame = targetInstance.WorldCFrame * CFrame.new(0, 2, 0)
-        task.wait(0.2) -- Small delay to allow physics/streaming to catch up
+    local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+    local rootPart = character:WaitForChild("HumanoidRootPart", 5)
+    
+    if rootPart then
+        -- Handle both Attachments (WorldCFrame) and Parts (CFrame)
+        local targetCFrame = targetInstance:IsA("Attachment") and targetInstance.WorldCFrame or targetInstance.CFrame
+        rootPart.CFrame = targetCFrame * CFrame.new(0, 2, 0)
+        task.wait(0.2)
+        return true
     end
+    return false
 end
 
 -- Main Automation Loop
-_G.AutoBattery = true -- Set to false in another script to stop it
+_G.AutoBattery = true
 
 task.spawn(function()
+    print("Auto-Battery Script Started!")
+    
     while _G.AutoBattery do
-        -- 1. Teleport to Battery and Grab It
-        print("Teleporting to Battery...")
-        teleportTo(BatteryAttachment)
-        GrabBatteryRemote:FireServer(BatteryAttachment)
+        -- Double check paths if they weren't found initially
+        if not PowerCellAttachment then
+            PowerCellAttachment = ObjectiveFolder:FindFirstChild("ShipPowerCellAttachment", true)
+        end
+        if not BatteryAttachment then
+            BatteryAttachment = Workspace:WaitForChild("Terrain"):FindFirstChild("BatterySpawnAttachment")
+        end
+
+        -- 1. Grab Battery Process
+        if BatteryAttachment then
+            print("Teleporting to Battery...")
+            if teleportTo(BatteryAttachment) then
+                GrabBatteryRemote:FireServer(BatteryAttachment)
+                task.wait(0.5)
+            end
+        else
+            warn("Battery Spawn Attachment not found in Workspace.Terrain!")
+        end
         
-        task.wait(0.5) -- Delay between actions
+        -- 2. Deposit Battery Process
+        if PowerCellAttachment then
+            print("Teleporting to Power Cell...")
+            if teleportTo(PowerCellAttachment) then
+                UseBatteryRemote:FireServer(PowerCellAttachment)
+                task.wait(1)
+            end
+        else
+            warn("ShipPowerCellAttachment could not be found inside BatteryDeposit_B!")
+            task.wait(2) -- Wait a bit before checking again to prevent log spam
+        end
         
-        -- 2. Teleport to Power Cell and Deposit It
-        print("Teleporting to Power Cell...")
-        teleportTo(PowerCellAttachment)
-        UseBatteryRemote:FireServer(PowerCellAttachment)
-        
-        task.wait(1) -- Cooldown before repeating the cycle
+        task.wait(0.5)
     end
+    print("Auto-Battery Script Stopped.")
 end)
