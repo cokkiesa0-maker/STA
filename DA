@@ -1,33 +1,44 @@
 -- Get core services and player references
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
 
 -- Define key objects
 local batteryAttachment = workspace:WaitForChild("Terrain"):WaitForChild("BatterySpawnAttachment")
-local crateAttachment = workspace:WaitForChild("Terrain"):WaitForChild("EggCrateSpawnAttachment") -- This is the Battery Deposit point
-local grabRemote = game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("GrabBatteryRemote")
-local useRemote = game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("UseBatteryOnCrateRemote")
+local depositAttachment = workspace:WaitForChild("Terrain"):WaitForChild("EggCrateSpawnAttachment")
+local grabRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("GrabBatteryRemote")
+local useRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("UseBatteryOnCrateRemote")
 
--- Teleport helper function
-local function teleportTo(target)
-    humanoidRootPart.CFrame = target.CFrame + Vector3.new(0, 2, 0) -- Prevent getting stuck in ground
-    task.wait(1) -- Let character stabilize after teleport
+-- Helper: Check if player has battery (adjust this condition to match your game's setup!)
+local function hasBattery()
+    -- Example check: Look for battery in player's inventory or character
+    return player.Backpack:FindFirstChild("Battery") or character:FindFirstChild("Battery")
 end
 
--- Main auto sequence loop
+-- Helper: Teleport function
+local function teleportTo(target)
+    humanoidRootPart.CFrame = target.CFrame + Vector3.new(0, 2, 0)
+    task.wait(0.5) -- Short wait after teleport
+end
+
+-- Main loop
 while true do
-    -- Step 1: Teleport to battery and grab it
-    teleportTo(batteryAttachment)
-    grabRemote:FireServer(batteryAttachment)
-    task.wait(2) -- Wait for grab to complete server-side
+    -- Phase 1: Keep teleporting to battery until grabbed
+    while not hasBattery() do
+        teleportTo(batteryAttachment)
+        grabRemote:FireServer(batteryAttachment)
+        task.wait(1) -- Check again after 1 second
+    end
 
-    -- Step 2: Immediately teleport to deposit point and use battery
-    teleportTo(crateAttachment)
-    useRemote:FireServer(crateAttachment)
-    task.wait(3) -- Wait for deposit to process
+    -- Phase 2: Keep teleporting to deposit until battery is used
+    while hasBattery() do
+        teleportTo(depositAttachment)
+        useRemote:FireServer(depositAttachment)
+        task.wait(1) -- Check again after 1 second
+    end
 
-    -- Optional: Wait before restarting the cycle
-    task.wait(4)
+    -- Optional: Short pause before restarting the cycle
+    task.wait(2)
 end
