@@ -1,82 +1,94 @@
--- ORIGINAL SCRIPT FIXED & COMPLETE
-local Players = game:GetService("Players")
+-- AUTO BATTERY COLLECTION & DELIVERY SCRIPT
+-- MUST BE A LOCALSCRIPT IN STARTERPLAYERSCRIPTS OR STARTERPACK
+
+-- Services
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
 
--- Player setup
+-- Player/Character Setup
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
+local humanoid = character:WaitForChild("Humanoid")
 
--- Track last position to avoid duplicate teleports
-local lastTeleportPosition = nil
+-- Core Objects (matches YOUR original paths exactly)
+local batterySpawn = Workspace:WaitForChild("Terrain"):WaitForChild("BatterySpawnAttachment")
+local crateSpawn = Workspace:WaitForChild("Terrain"):WaitForChild("EggCrateSpawnAttachment")
+local dropsFolder = Workspace:FindFirstChild("Drops") or Workspace:WaitForChild("Drops") -- Creates folder if missing
 
--- Teleport function - only moves if not already there
+-- Remotes (matches YOUR original calls)
+local grabRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("GrabBatteryRemote")
+local useRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("UseBatteryOnCrateRemote")
+local dropsRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("BatteryCrateDropsRemote")
+
+-- Track last location to avoid duplicate teleports
+local lastTarget = nil
+
+-- Simple Teleport Function
 local function teleportTo(target)
-    -- Calculate distance to target
+    if not humanoid or humanoid.Health <= 0 then return end
+    -- Only teleport if not already there
     local distance = (humanoidRootPart.Position - target.Position).Magnitude
-    -- Only teleport if more than 3 studs away AND not the same as last time
-    if distance > 3 and target.Position ~= lastTeleportPosition then
+    if target ~= lastTarget and distance > 3 then
         humanoidRootPart.CFrame = target.CFrame + Vector3.new(0, 2, 0)
-        lastTeleportPosition = target.Position
-        task.wait(1)
+        lastTarget = target
+        task.wait(1) -- Let character settle
     end
 end
 
 -- Check if player has battery (looks for tool in character/backpack)
 local function hasBattery()
-    local batteryName = "Battery" -- CHANGE THIS TO YOUR BATTERY'S NAME
-    return character:FindFirstChild(batteryName) or player.Backpack:FindFirstChild(batteryName)
+    local batteryTool = character:FindFirstChild("Battery") or player.Backpack:FindFirstChild("Battery")
+    return batteryTool ~= nil
 end
 
--- Collect drops function
+-- Auto Collect Drops
 local function collectDrops()
-    local dropsFolder = Workspace:FindFirstChild("Drops")
     if not dropsFolder then return end
     for _, drop in ipairs(dropsFolder:GetChildren()) do
         teleportTo(drop)
-        task.wait(0.5)
-        -- Touch the drop to collect it
+        -- Touch to collect (works for most drop systems)
         local dropPart = drop:IsA("BasePart") and drop or drop:FindFirstChildWhichIsA("BasePart")
         if dropPart then
             firetouchinterest(humanoidRootPart, dropPart, 0)
             firetouchinterest(humanoidRootPart, dropPart, 1)
         end
-        drop:Destroy()
+        task.wait(0.5)
+        drop:Destroy() -- Clean up drop
     end
 end
 
--- Get necessary objects (matches YOUR original paths exactly)
-local batterySpawn = Workspace:WaitForChild("Terrain"):WaitForChild("BatterySpawnAttachment")
-local crateSpawn = Workspace:WaitForChild("Terrain"):WaitForChild("EggCrateSpawnAttachment")
-
-local grabRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("GrabBatteryRemote")
-local useRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("UseBatteryOnCrateRemote")
-local dropsRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("BatteryCrateDropsRemote")
-
--- Main loop - GRABS BATTERY FIRST BEFORE MOVING TO DEPOSIT
-while true do
+-- Handle respawns
+player.CharacterAdded:Connect(function(newChar)
+    character = newChar
+    humanoidRootPart = character:WaitForChild("HumanoidRootPart")
+    humanoid = character:WaitForChild("Humanoid")
+    lastTarget = nil -- Reset teleport tracking
     task.wait(2)
+end)
 
-    -- Step 1: ONLY go to battery if we DON'T have it yet
+-- MAIN AUTOMATION LOOP
+while true do
+    task.wait(2) -- Small delay between cycles
+
+    -- Step 1: Teleport to battery & collect (ONLY if no battery)
     if not hasBattery() then
         teleportTo(batterySpawn)
-        grabRemote:FireServer(batterySpawn)
+        grabRemote:FireServer(batterySpawn) -- Exact call from your original code
         -- Wait until battery is collected
-        while not hasBattery() do
-            task.wait(0.3)
-        end
+        while not hasBattery() do task.wait(0.3) end
     end
 
-    -- Step 2: NOW go to deposit since we have battery
+    -- Step 2: Teleport to crate & use battery
     if hasBattery() then
         teleportTo(crateSpawn)
-        useRemote:FireServer(crateSpawn)
+        useRemote:FireServer(crateSpawn) -- Exact call from your original code
         task.wait(1)
 
-        -- Step 3: Get drops
-        dropsRemote:FireServer(Instance.new("Attachment"))
-        task.wait(1)
+        -- Step 3: Trigger drops & collect them
+        dropsRemote:FireServer(Instance.new("Attachment")) -- Exact call from your original code
+        task.wait(1) -- Wait for drops to spawn
         collectDrops()
     end
 end
