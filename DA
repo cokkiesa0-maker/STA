@@ -12,19 +12,13 @@ local Terrain = Workspace:WaitForChild("Terrain")
 
 -- Scan Function
 local function scanForTargets()
-    print("Scanning for Battery and Deposit...")
-    
-    -- 5-second timeout to look for the attachments
     local battery = Terrain:WaitForChild("BatterySpawnAttachment", 5)
     local deposit = Terrain:WaitForChild("EggCrateSpawnAttachment", 5)
     
     if battery and deposit then
-        print("Scan successful! Both targets found.")
         return battery, deposit
-    else
-        warn("Scan failed. One or both targets are missing from Workspace.")
-        return nil, nil
     end
+    return nil, nil
 end
 
 -- Teleport Helper
@@ -34,7 +28,7 @@ local function teleportTo(targetAttachment)
     
     if rootPart and targetAttachment then
         rootPart.CFrame = targetAttachment.CFrame * CFrame.new(0, 2, 0)
-        task.wait(0.2)
+        task.wait(0.25) -- Safe delay for physics sync
         return true
     end
     return false
@@ -42,18 +36,20 @@ end
 
 -- Main Automation
 local function startAutoFarm()
-    -- Perform initial scan
     local battery, deposit = scanForTargets()
-    if not (battery and deposit) then return end
+    if not (battery and deposit) then 
+        warn("Target scan failed. Script stopped.")
+        return 
+    end
 
     while true do
-        -- 1. Teleport to Battery
+        -- 1. Teleport to Battery & Grab
         if teleportTo(battery) then
             GrabBattery:FireServer(battery)
-            task.wait(0.5)
+            task.wait(0.3) -- Short delay to ensure server registers the grab
         end
 
-        -- 2. Teleport to Deposit
+        -- 2. Teleport to Deposit & Use
         if teleportTo(deposit) then
             UseBattery:FireServer(deposit)
             task.wait(0.2)
@@ -68,7 +64,7 @@ local function startAutoFarm()
             end
         end
         
-        task.wait(0.5)
+        task.wait(0.5) -- Loop cooldown
     end
 end
 
