@@ -2,6 +2,7 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
+local TweenService = game:GetService("TweenService")
 
 -- Configuration
 local LocalPlayer = Players.LocalPlayer
@@ -10,89 +11,100 @@ local GrabBattery = Remotes:WaitForChild("GrabBatteryRemote")
 local UseBattery = Remotes:WaitForChild("UseBatteryOnCrateRemote")
 local Terrain = Workspace:WaitForChild("Terrain")
 
--- Wait for Map and Assets to Load
+-- Bypass Configuration
+local TRAVEL_SPEED = 180 -- Studs per second. Lower this if you still get rubberbanded.
+
+-- Wait for Map and Assets to Load Completely
 local function waitForGameToLoad()
-    print("[Loader] Waiting for game instance to fully load...")
+    print("[Loader] Waiting for game to load...")
     if not game:IsLoaded() then
         game.Loaded:Wait()
     end
     
-    print("[Loader] Checking map streaming status...")
-    -- Ensure player character is spawned and stable
     local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
     character:WaitForChild("HumanoidRootPart")
 
     local battery = nil
     local deposit = nil
     local retries = 0
-    local maxRetries = 30 -- Prevents infinite loops if names changed
+    local maxRetries = 30
 
-    -- Continuous scanning loop for map assets
     while not (battery and deposit) and retries < maxRetries do
-        print(string.format("[Loader] Scanning for attachments... (Attempt %d/%d)", retries + 1, maxRetries))
-        
         battery = Terrain:FindFirstChild("BatterySpawnAttachment")
         deposit = Terrain:FindFirstChild("EggCrateSpawnAttachment")
         
-        if battery and deposit then
-            break
-        end
-        
+        if battery and deposit then break end
         retries = retries + 1
-        task.wait(1) -- Wait 1 second between map scans
+        task.wait(1)
     end
 
     if battery and deposit then
-        print("[Loader] Map, Battery, and Deposit successfully loaded!")
+        print("[Loader] Setup complete. Ready to farm.")
         return battery, deposit
     else
-        warn("[Loader] Critical Failure: Map assets failed to load within the time limit.")
+        warn("[Loader] Failed to find target attachments.")
         return nil, nil
     end
 end
 
--- Teleport Helper
-local function teleportTo(targetAttachment)
+-- Server-Safe Bypass Teleport (Anti-Rubberband)
+local function safeTeleport(targetAttachment)
     local character = LocalPlayer.Character
     local rootPart = character and character:FindFirstChild("HumanoidRootPart")
     
     if rootPart and targetAttachment then
-        rootPart.CFrame = targetAttachment.CFrame * CFrame.new(0, 2, 0)
-        task.wait(0.25) -- Physics sync delay
+        local currentPosition = rootPart.Position
+        local targetPosition = targetAttachment.Position
+        local distance = (currentPosition - targetPosition).Magnitude
+        
+        -- Calculate dynamic duration based on safety speed
+        local duration = distance / TRAVEL_SPEED
+        local targetCFrame = targetAttachment.CFrame * CFrame.new(0, 2, 0)
+        
+        local tweenInfo = TweenInfo.new(duration, Enum.EasingStyle.Linear)
+        local tween = TweenService:Create(rootPart, tweenInfo, {CFrame = targetCFrame})
+        
+        tween:Play()
+        tween.Completed:Wait() -- Wait until the character physically arrives
+        
+        task.wait(0.15) -- Small physics settling buffer
         return true
     end
     return false
 end
 
--- Main Automation
+-- Main Automation Loop
 local function startAutoFarm()
-    -- Absolute block until map conditions are met
     local battery, deposit = waitForGameToLoad()
     if not (battery and deposit) then return end
 
     while true do
-        -- 1. Teleport to Battery & Grab
-        if teleportTo(battery) then
+        -- 1. Travel to Battery & Grab
+        print("[Farm] Moving to Battery...")
+        if safeTeleport(battery) then
             GrabBattery:FireServer(battery)
-            task.wait(0.3)
+            task.wait(0.4) -- Time for server verification
         end
 
-        -- 2. Teleport to Deposit & Use
-        if teleportTo(deposit) then
+        -- 2. Travel to Deposit & Use
+        print("[Farm] Moving to Deposit...")
+        if safeTeleport(deposit) then
             UseBattery:FireServer(deposit)
             task.wait(0.2)
             
-            -- 3. Lock Position for 3 seconds
+            -- 3. Lock Position for 3 Seconds
             local character = LocalPlayer.Character
             local rootPart = character and character:FindFirstChild("HumanoidRootPart")
             if rootPart then
+                print("[Farm] Locking position at deposit...")
                 rootPart.Anchored = true
                 task.wait(3)
                 rootPart.Anchored = false
+                print("[Farm] Position unlocked.")
             end
         end
         
-        task.wait(0.5) -- Loop safety delay
+        task.wait(0.5) -- Loop safety cooldown
     end
 end
 
