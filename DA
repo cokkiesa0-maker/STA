@@ -1,80 +1,66 @@
--- Get core services and player references
+-- Services
 local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+-- Player & Character References
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
+local humanoid = character:WaitForChild("Humanoid")
 
--- Remotes (keep as needed for interactions)
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
+-- Remote Events
 local grabRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("GrabBatteryRemote")
 local useRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("UseBatteryOnCrateRemote")
+local dropsRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("BatteryCrateDropsRemote")
 
--- Helper: Check if player is holding battery
-local function hasBattery()
-    return player.Backpack:FindFirstChild("Battery") or character:FindFirstChild("Battery")
+-- Spawn Locations
+local batterySpawn = Workspace:WaitForChild("Terrain"):WaitForChild("BatterySpawnAttachment")
+local crateSpawn = Workspace:WaitForChild("Terrain"):WaitForChild("EggCrateSpawnAttachment")
+
+-- Function to Teleport Safely
+local function teleportTo(target)
+    if humanoid.Health <= 0 then return end -- Skip if character is dead
+    humanoidRootPart.CFrame = target.CFrame + Vector3.new(0, 2, 0) -- Add height to avoid ground issues
+    task.wait(1) -- Wait for character to stabilize
 end
 
--- Helper: Find and return the exact location of the physical Battery object
-local function findBatteryLocation()
-    -- Search entire workspace for the Battery (adjust search scope if needed, e.g., workspace.Terrain)
-    local battery = workspace:FindFirstChildWhichIsA("BasePart", true)
-    while battery and battery.Name ~= "Battery" do
-        battery = workspace:FindFirstChildWhichIsA("BasePart", true, battery)
-    end
-
-    if battery then
-        print("Battery found at: X="..battery.Position.X..", Y="..battery.Position.Y..", Z="..battery.Position.Z)
-        return battery.CFrame -- Return exact position/rotation
-    else
-        print("No Battery detected in workspace")
-        return nil
-    end
-end
-
--- Helper: Find and return the exact location of the active Battery Deposit
-local function findDepositLocation()
-    -- Search for the Egg Crate that needs a battery
-    local crate = workspace:FindFirstChildWhichIsA("BasePart", true)
-    while crate and (crate.Name ~= "EggCrate" or crate:GetAttribute("NeedsBattery") ~= true) do
-        crate = workspace:FindFirstChildWhichIsA("BasePart", true, crate)
-    end
-
-    if crate then
-        print("Active Deposit found at: X="..crate.Position.X..", Y="..crate.Position.Y..", Z="..crate.Position.Z)
-        return crate.CFrame + Vector3.new(0, 2, 0) -- Add height for player standing space
-    else
-        print("No active Battery Deposit detected")
-        return nil
+-- Function to Collect Drops
+local function collectDrops()
+    local drops = Workspace:FindFirstChild("Drops") -- Adjust folder name if needed
+    if not drops then return end
+    
+    for _, drop in ipairs(drops:GetChildren()) do
+        if humanoid.Health > 0 then
+            teleportTo(drop)
+            task.wait(0.5) -- Simulate interaction delay
+            -- If drops require a remote or touch interaction, add it here
+            drop:Destroy() -- Optional: Remove drop after collection
+        end
     end
 end
 
--- Helper: Teleport to detected location
-local function teleportTo(targetLocation)
-    if targetLocation then
-        humanoidRootPart.CFrame = targetLocation
-        task.wait(0.75)
-    end
-end
-
--- Main loop: Constantly detect locations and act
-while true do
-    local batteryLoc = findBatteryLocation()
-    local depositLoc = findDepositLocation()
-
-    -- Collect battery if not held and location is found
-    if not hasBattery() and batteryLoc then
-        teleportTo(batteryLoc)
-        grabRemote:FireServer(batteryLoc) -- Send location to server if needed
-        task.wait(1.5)
+-- Main Automation Loop
+while task.wait(3) do -- Repeat every 3 seconds (adjust as needed)
+    if humanoid.Health <= 0 then
+        character = player.CharacterAdded:Wait() -- Wait for respawn
+        humanoidRootPart = character:WaitForChild("HumanoidRootPart")
+        humanoid = character:WaitForChild("Humanoid")
+        task.wait(2) -- Wait for respawn to finish
     end
 
-    -- Deposit battery if held and location is found
-    if hasBattery() and depositLoc then
-        teleportTo(depositLoc)
-        useRemote:FireServer(depositLoc) -- Send location to server if needed
-        task.wait(1.5)
-    end
+    -- Step 1: Teleport to Battery & Collect
+    teleportTo(batterySpawn)
+    grabRemote:FireServer(batterySpawn)
+    task.wait(1)
 
-    -- Re-scan every 2 seconds
-    task.wait(2)
+    -- Step 2: Teleport to Crate & Use Battery
+    teleportTo(crateSpawn)
+    useRemote:FireServer(crateSpawn)
+    task.wait(1)
+
+    -- Step 3: Trigger Drops & Collect Them
+    dropsRemote:FireServer(Instance.new("Attachment"))
+    task.wait(1)
+    collectDrops()
 end
