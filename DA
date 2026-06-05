@@ -16,22 +16,29 @@ local dropsRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Batt
 
 local batterySpawn = Workspace:WaitForChild("Terrain"):WaitForChild("BatterySpawnAttachment")
 local crateSpawn = Workspace:WaitForChild("Terrain"):WaitForChild("EggCrateSpawnAttachment")
-local batteryInventoryCheck = player:WaitForChild("Inventory"):WaitForChild("Battery") -- Adjust to your inventory path
+local batteryInventoryCheck = player:WaitForChild("Inventory"):WaitForChild("Battery") -- Adjust to your game's setup
 
--- Teleport Function
+-- Track last teleport target to avoid duplicates
+local lastTeleportTarget = nil
+
+-- Teleport Function (with duplicate check)
 local function teleportTo(target)
     if humanoid.Health <= 0 then return end
+    -- Only teleport if target is different from last one
+    if target == lastTeleportTarget then return end
+
     humanoidRootPart.CFrame = target.CFrame + Vector3.new(0, 2, 0)
+    lastTeleportTarget = target -- Update last target
     task.wait(1)
 end
 
--- Collect Drops Function
+-- Collect Drops Function (also avoids re-teleporting to same drop)
 local function collectDrops()
     local drops = Workspace:FindFirstChild("Drops")
     if not drops then return end
     for _, drop in ipairs(drops:GetChildren()) do
         if humanoid.Health > 0 then
-            teleportTo(drop)
+            teleportTo(drop) -- Duplicate check applies here too
             task.wait(0.5)
             drop:Destroy()
         end
@@ -44,33 +51,33 @@ while task.wait(3) do
         character = player.CharacterAdded:Wait()
         humanoidRootPart = character:WaitForChild("HumanoidRootPart")
         humanoid = character:WaitForChild("Humanoid")
+        lastTeleportTarget = nil -- Reset last target on respawn
         task.wait(2)
     end
 
-    -- Step 1: Go to battery spawn ONLY if no battery is held
+    -- Step 1: Grab battery only if not held and not already at spawn
     if not batteryInventoryCheck.Value then
-        teleportTo(batterySpawn)
+        teleportTo(batterySpawn) -- Won't teleport if already there
         grabRemote:FireServer(batterySpawn)
-        task.wait(1.5) -- Give time for collection to register
+        task.wait(1.5)
         
-        -- Wait until battery is confirmed in inventory before proceeding
         while not batteryInventoryCheck.Value do
             task.wait(0.2)
         end
     end
 
-    -- Step 2: Now go to deposit point (only if battery is held)
+    -- Step 2: Go to crate only if holding battery and not already there
     if batteryInventoryCheck.Value then
-        teleportTo(crateSpawn)
+        teleportTo(crateSpawn) -- Won't teleport if already there
         useRemote:FireServer(crateSpawn)
         task.wait(1)
 
-        -- Step 3: Get and collect drops
+        -- Step 3: Handle drops
         dropsRemote:FireServer(Instance.new("Attachment"))
         task.wait(1)
         collectDrops()
         
-        -- Reset inventory check flag after use
         batteryInventoryCheck.Value = false
+        lastTeleportTarget = nil -- Optional: Reset after full cycle
     end
 end
