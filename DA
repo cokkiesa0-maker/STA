@@ -3,64 +3,74 @@ local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
--- Player & Character References
+-- Player & Character
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
 local humanoid = character:WaitForChild("Humanoid")
 
--- Remote Events
+-- Remotes & Locations
 local grabRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("GrabBatteryRemote")
 local useRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("UseBatteryOnCrateRemote")
 local dropsRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("BatteryCrateDropsRemote")
 
--- Spawn Locations
 local batterySpawn = Workspace:WaitForChild("Terrain"):WaitForChild("BatterySpawnAttachment")
 local crateSpawn = Workspace:WaitForChild("Terrain"):WaitForChild("EggCrateSpawnAttachment")
+local batteryInventoryCheck = player:WaitForChild("Inventory"):WaitForChild("Battery") -- Adjust to your inventory path
 
--- Function to Teleport Safely
+-- Teleport Function
 local function teleportTo(target)
-    if humanoid.Health <= 0 then return end -- Skip if character is dead
-    humanoidRootPart.CFrame = target.CFrame + Vector3.new(0, 2, 0) -- Add height to avoid ground issues
-    task.wait(1) -- Wait for character to stabilize
+    if humanoid.Health <= 0 then return end
+    humanoidRootPart.CFrame = target.CFrame + Vector3.new(0, 2, 0)
+    task.wait(1)
 end
 
--- Function to Collect Drops
+-- Collect Drops Function
 local function collectDrops()
-    local drops = Workspace:FindFirstChild("Drops") -- Adjust folder name if needed
+    local drops = Workspace:FindFirstChild("Drops")
     if not drops then return end
-    
     for _, drop in ipairs(drops:GetChildren()) do
         if humanoid.Health > 0 then
             teleportTo(drop)
-            task.wait(0.5) -- Simulate interaction delay
-            -- If drops require a remote or touch interaction, add it here
-            drop:Destroy() -- Optional: Remove drop after collection
+            task.wait(0.5)
+            drop:Destroy()
         end
     end
 end
 
--- Main Automation Loop
-while task.wait(3) do -- Repeat every 3 seconds (adjust as needed)
+-- Main Loop
+while task.wait(3) do
     if humanoid.Health <= 0 then
-        character = player.CharacterAdded:Wait() -- Wait for respawn
+        character = player.CharacterAdded:Wait()
         humanoidRootPart = character:WaitForChild("HumanoidRootPart")
         humanoid = character:WaitForChild("Humanoid")
-        task.wait(2) -- Wait for respawn to finish
+        task.wait(2)
     end
 
-    -- Step 1: Teleport to Battery & Collect
-    teleportTo(batterySpawn)
-    grabRemote:FireServer(batterySpawn)
-    task.wait(1)
+    -- Step 1: Go to battery spawn ONLY if no battery is held
+    if not batteryInventoryCheck.Value then
+        teleportTo(batterySpawn)
+        grabRemote:FireServer(batterySpawn)
+        task.wait(1.5) -- Give time for collection to register
+        
+        -- Wait until battery is confirmed in inventory before proceeding
+        while not batteryInventoryCheck.Value do
+            task.wait(0.2)
+        end
+    end
 
-    -- Step 2: Teleport to Crate & Use Battery
-    teleportTo(crateSpawn)
-    useRemote:FireServer(crateSpawn)
-    task.wait(1)
+    -- Step 2: Now go to deposit point (only if battery is held)
+    if batteryInventoryCheck.Value then
+        teleportTo(crateSpawn)
+        useRemote:FireServer(crateSpawn)
+        task.wait(1)
 
-    -- Step 3: Trigger Drops & Collect Them
-    dropsRemote:FireServer(Instance.new("Attachment"))
-    task.wait(1)
-    collectDrops()
+        -- Step 3: Get and collect drops
+        dropsRemote:FireServer(Instance.new("Attachment"))
+        task.wait(1)
+        collectDrops()
+        
+        -- Reset inventory check flag after use
+        batteryInventoryCheck.Value = false
+    end
 end
