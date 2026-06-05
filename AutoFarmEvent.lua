@@ -85,7 +85,7 @@ local success, err = pcall(function()
                 local targetPosition = batteryObject.Position + TELEPORT_OFFSET
                 HumanoidRootPart.CFrame = CFrame.new(targetPosition)
                 print("Teleported to battery")
-                wait(0.5)
+                wait(0.3)
                 
                 -- Grab battery - try different argument formats
                 print("Grabbing battery...")
@@ -99,8 +99,8 @@ local success, err = pcall(function()
                     GrabBatteryRemote:FireServer(batteryObject)
                 end
                 
-                print("Battery remote fired!")
-                wait(DELAY_BETWEEN_ACTIONS)
+                print("Battery grabbed! Instantly teleporting to deposit...")
+                
             else
                 print("Warning: Battery not found - checking available objects")
                 -- List available objects for debugging
@@ -114,10 +114,7 @@ local success, err = pcall(function()
             print("Error grabbing battery: " .. tostring(err1))
         end
         
-        -- Small delay between actions
-        wait(0.3)
-        
-        -- Step 2: Teleport to Egg Crate and Use Battery
+        -- Step 2: INSTANT Teleport to Egg Crate and Use Battery (NO DELAY)
         local success2, err2 = pcall(function()
             print("Finding egg crate...")
             
@@ -133,11 +130,11 @@ local success, err = pcall(function()
             if crateObject then
                 print("Egg crate found at: " .. crateObject.Name)
                 
-                -- Teleport to crate location
+                -- INSTANT Teleport to crate location (no wait)
                 local targetPosition = crateObject.Position + TELEPORT_OFFSET
                 HumanoidRootPart.CFrame = CFrame.new(targetPosition)
-                print("Teleported to egg crate")
-                wait(0.5)
+                print("Instantly teleported to egg crate")
+                wait(0.1) -- Minimal delay for server sync
                 
                 -- Use battery on crate - try different argument formats
                 print("Using battery on egg crate...")
@@ -150,7 +147,7 @@ local success, err = pcall(function()
                     UseBatteryOnCrateRemote:FireServer(crateObject)
                 end
                 
-                print("Battery used on crate!")
+                print("Battery deposited on crate!")
                 wait(DELAY_BETWEEN_ACTIONS)
                 
                 -- Wait 3-5 seconds after depositing battery
