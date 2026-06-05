@@ -10,24 +10,75 @@ local success, err = pcall(function()
     local Workspace = game:GetService("Workspace")
     local Players = game:GetService("Players")
     
+    -- Wait a bit to ensure everything is loaded
+    wait(1)
+    
     -- Get local player
     local LocalPlayer = Players.LocalPlayer
-    local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
-    local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-    local HumanoidRootPart = Character:WaitForChild("HumanoidRootPart", 10)
+    if not LocalPlayer then
+        print("ERROR: LocalPlayer not found!")
+        return
+    end
     
     print("LocalPlayer: " .. tostring(LocalPlayer.Name))
+    
+    -- Wait for PlayerGui
+    local PlayerGui = LocalPlayer:WaitForChild("PlayerGui", 10)
+    if not PlayerGui then
+        print("ERROR: PlayerGui not found!")
+        return
+    end
+    
+    -- Wait for Character
+    local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+    if not Character then
+        print("ERROR: Character not found!")
+        return
+    end
+    
+    local HumanoidRootPart = Character:WaitForChild("HumanoidRootPart", 10)
+    if not HumanoidRootPart then
+        print("ERROR: HumanoidRootPart not found!")
+        return
+    end
+    
     print("Character loaded: " .. tostring(Character.Name))
     
-    -- Get remotes
+    -- Get remotes with error checking
     local Remotes = ReplicatedStorage:WaitForChild("Remotes", 10)
+    if not Remotes then
+        print("ERROR: Remotes folder not found in ReplicatedStorage!")
+        return
+    end
+    
     local GrabBatteryRemote = Remotes:WaitForChild("GrabBatteryRemote", 10)
+    if not GrabBatteryRemote then
+        print("ERROR: GrabBatteryRemote not found!")
+        print("Available remotes:")
+        for _, child in pairs(Remotes:GetChildren()) do
+            print("  - " .. child.Name)
+        end
+        return
+    end
+    
     local UseBatteryOnCrateRemote = Remotes:WaitForChild("UseBatteryOnCrateRemote", 10)
+    if not UseBatteryOnCrateRemote then
+        print("ERROR: UseBatteryOnCrateRemote not found!")
+        print("Available remotes:")
+        for _, child in pairs(Remotes:GetChildren()) do
+            print("  - " .. child.Name)
+        end
+        return
+    end
     
     print("Remotes loaded successfully")
     
     -- Get terrain for spawn attachments
     local Terrain = Workspace:WaitForChild("Terrain", 10)
+    if not Terrain then
+        print("ERROR: Terrain not found in Workspace!")
+        return
+    end
     
     -- Configuration
     local BATTERY_SPAWN_ATTACHMENT = "BatterySpawnAttachment"
