@@ -19,33 +19,92 @@ local crateAttach = Workspace:WaitForChild("Terrain"):WaitForChild("EggCrateSpaw
 -- Settings
 local TELEPORT_OFFSET = Vector3.new(0, 2, 0)
 local ACTION_DELAY = 1.5
-local LOOP_DELAY = 3
+local LOOP_DELAY = 2
+
+-- State Tracking
+local hasBattery = false
+local batteryModel = nil -- To detect if battery exists at spawn
+local crateDeposited = false
+
+-- Helper: Check if battery is present at spawn
+local function isBatteryAvailable()
+    -- Look for battery model/part near the attachment (adjust name to match your game's battery object)
+    local batteryCheck = Workspace:FindFirstChild("Battery") or batteryAttach.Parent:FindFirstChildWhichIsA("BasePart")
+    batteryModel = batteryCheck
+    return batteryCheck ~= nil
+end
+
+-- Helper: Check if battery is in player's inventory/character
+local function checkIfHasBattery()
+    -- Check character for battery, or inventory if you use one
+    local batteryInChar = character:FindFirstChild("Battery")
+    hasBattery = batteryInChar ~= nil or (player.Backpack and player.Backpack:FindFirstChild("Battery"))
+    return hasBattery
+end
+
+-- Helper: Check if deposit is complete
+local function isDepositComplete()
+    -- Adjust this to match how your game shows a successful deposit
+    -- Example: Check if crate has a "Powered" bool value or a visual change
+    local cratePowered = crateAttach.Parent:FindFirstChild("IsPowered")
+    crateDeposited = cratePowered and cratePowered.Value == true
+    return crateDeposited
+end
 
 -- Safe teleport function
 local function safeTeleport(target)
     if not humanoidRootPart or humanoid.Health <= 0 then return false end
     humanoidRootPart.CFrame = target.WorldCFrame + TELEPORT_OFFSET
-    wait(ACTION_DELAY) -- Longer wait to ensure teleport completes
+    wait(ACTION_DELAY)
     return true
 end
 
 -- Main loop
 while true do
-    -- Step 1: Get battery
-    print("Teleporting to battery...")
-    if safeTeleport(batteryAttach) then
-        grabRemote:FireServer(batteryAttach)
-        print("Grabbed battery!")
+    -- Reset deposit state each cycle
+    crateDeposited = false
+
+    -- Step 1: Get battery ONLY if not already holding it and it's available
+    if not hasBattery and isBatteryAvailable() then
+        print("Teleporting to battery...")
+        if safeTeleport(batteryAttach) then
+            grabRemote:FireServer(batteryAttach)
+            wait(ACTION_DELAY)
+            -- Update state after trying to grab
+            hasBattery = checkIfHasBattery()
+            if hasBattery then
+                print("Battery picked up successfully!")
+                batteryModel = nil -- Clear since it's no longer at spawn
+            else
+                print("Failed to pick up battery - retrying...")
+            end
+        end
+    elseif hasBattery then
+        print("Already holding battery!")
+    else
+        print("Battery not available yet - waiting...")
     end
 
-    -- Step 2: Go to deposit (separate wait to make sure it moves)
-    wait(ACTION_DELAY)
-    print("Teleporting to crate...")
-    if safeTeleport(crateAttach) then
-        useRemote:FireServer(crateAttach) -- Only send crate if that's what the remote needs
-        print("Deposited battery!")
+    -- Step 2: Deposit battery ONLY if holding it and not already deposited
+    if hasBattery and not crateDeposited then
+        wait(ACTION_DELAY)
+        print("Teleporting to crate to deposit...")
+        if safeTeleport(crateAttach) then
+            useRemote:FireServer(crateAttach)
+            wait(ACTION_DELAY)
+            -- Update state after trying to deposit
+            crateDeposited = isDepositComplete()
+            if crateDeposited then
+                print("Battery deposited successfully!")
+                hasBattery = false -- Reset state after deposit
+            else
+                print("Failed to deposit battery - retrying...")
+            end
+        end
+    elseif crateDeposited then
+        print("Battery already deposited!")
     end
 
-    wait(LOOP_DELAY) -- Wait before restarting
+    wait(LOOP_DELAY)
 end
 
