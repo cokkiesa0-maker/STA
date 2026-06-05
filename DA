@@ -1,152 +1,121 @@
-local success, err = pcall(function()
-    
-    local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+-- Fallback source link to bypass executor network filter blocks
+local loadstringUrl = 'https://raw.githubusercontent.com/SiriusSoftwareLtd/Rayfield/main/source.lua'
+local Rayfield = loadstring(game:HttpGet(loadstringUrl))()
 
-    -- Create Window with clean integer parameters
-    local Window = Rayfield:CreateWindow({
-        Name = "Battery Automation Hub",
-        Icon = 0, -- 0 completely bypasses the icon loading step
-        LoadingTitle = "Loading Script Suite...",
-        LoadingSubtitle = "Ready",
-        ConfigurationSaving = {
-            Enabled = false
-        },
-        Discord = {
-            Enabled = false
-        },
-        KeySystem = false
-    })
+-- Fully populated Window settings to prevent silent crashes
+local Window = Rayfield:CreateWindow({
+    Name = "Battery Automation Hub",
+    Icon = 0, 
+    LoadingTitle = "Loading Automation...",
+    LoadingSubtitle = "Please wait",
+    Theme = "Default",
+    DisableRayfieldPrompts = false,
+    DisableBuildWarnings = false,
+    ConfigurationSaving = {
+        Enabled = false,
+        FolderName = nil,
+        FileName = "WorkspaceConfig"
+    },
+    Discord = {
+        Enabled = false,
+        Invite = "noinvitelink",
+        RememberJoins = true
+    },
+    KeySystem = false
+})
 
-    -- Shared Global Variables
-    local _G = _G or {}
-    _G.AutoFarm = false
-    _G.AutoTeleport = false
-    _G.FarmDelay = 0.3
+-- Shared Loop Variables
+local _G = _G or {}
+_G.AutoFarm = false
+_G.AutoTeleport = false
+_G.FarmDelay = 0.3
 
-    -- Services & Safeguards
-    local replicatedStorage = game:GetService("ReplicatedStorage")
-    local workspace = game:GetService("Workspace")
-    local players = game:GetService("Players")
-    local localPlayer = players.LocalPlayer
+-- Engine paths with fallback protections
+local replicatedStorage = game:GetService("ReplicatedStorage")
+local workspace = game:GetService("Workspace")
+local players = game:GetService("Players")
+local localPlayer = players.LocalPlayer
 
-    -- Dynamic validation checks
-    local remotes = replicatedStorage:WaitForChild("Remotes", 5)
-    local grabBatteryRemote = remotes and remotes:WaitForChild("GrabBatteryRemote", 5)
-    local useBatteryRemote = remotes and remotes:WaitForChild("UseBatteryOnCrateRemote", 5)
+local remotes = replicatedStorage:WaitForChild("Remotes", 5)
+local grabBatteryRemote = remotes and remotes:WaitForChild("GrabBatteryRemote", 5)
+local useBatteryRemote = remotes and remotes:WaitForChild("UseBatteryOnCrateRemote", 5)
 
-    local terrain = workspace:WaitForChild("Terrain", 5)
-    local batteryAttachment = terrain and terrain:WaitForChild("BatterySpawnAttachment", 5)
-    local eggCrateAttachment = terrain and terrain:WaitForChild("EggCrateSpawnAttachment", 5)
+local terrain = workspace:WaitForChild("Terrain", 5)
+local batteryAttachment = terrain and terrain:WaitForChild("BatterySpawnAttachment", 5)
+local eggCrateAttachment = terrain and terrain:WaitForChild("EggCrateSpawnAttachment", 5)
 
-    -- ==========================================
-    -- TAB 1: AUTOMATION
-    -- ==========================================
-    local AutomationTab = Window:CreateTab("Automation", 0) 
-    AutomationTab:CreateSection("Battery Loops")
+-- ==========================================
+-- TAB SETUP
+-- ==========================================
+local AutomationTab = Window:CreateTab("Automation", 0) 
+AutomationTab:CreateSection("Battery Settings")
 
-    -- Toggle 1: Auto Farm Loop
-    local FarmToggle = AutomationTab:CreateToggle({
-        Name = "Auto Grab & Use Battery",
-        CurrentValue = false,
-        Flag = "AutoFarmFlag",
-        Callback = function(Value)
-            _G.AutoFarm = Value
-            
-            if Value then
-                task.spawn(function()
-                    while _G.AutoFarm do
-                        -- 1. Grab Battery
-                        if grabBatteryRemote and batteryAttachment then
-                            local grabArgs = { batteryAttachment }
-                            grabBatteryRemote:FireServer(unpack(grabArgs))
-                        end
-                        
-                        task.wait(_G.FarmDelay)
-                        
-                        -- 2. Use Battery
-                        if useBatteryRemote and eggCrateAttachment then
-                            local useArgs = { eggCrateAttachment }
-                            useBatteryRemote:FireServer(unpack(useArgs))
-                        end
-                        
-                        task.wait(_G.FarmDelay)
+AutomationTab:CreateToggle({
+    Name = "Auto Grab & Use Battery",
+    CurrentValue = false,
+    Flag = "MainFarmToggleFlag",
+    Callback = function(Value)
+        _G.AutoFarm = Value
+        if Value then
+            task.spawn(function()
+                while _G.AutoFarm do
+                    if grabBatteryRemote and batteryAttachment then
+                        grabBatteryRemote:FireServer(batteryAttachment)
                     end
-                end)
-            end
-        end,
-    })
-
-    -- Slider to control loop speeds
-    local DelaySlider = AutomationTab:CreateSlider({
-        Name = "Action Speed Delay",
-        Range = {0.1, 2},
-        Increment = 0.1,
-        Suffix = "s",
-        CurrentValue = 0.3,
-        Flag = "DelaySliderFlag",
-        Callback = function(Value)
-            _G.FarmDelay = Value
-        end,
-    })
-
-    -- ==========================================
-    -- TAB 2: TELEPORTS
-    -- ==========================================
-    local TeleportTab = Window:CreateTab("Teleports", 0)
-    TeleportTab:CreateSection("Movement Toggles")
-
-    -- Toggle 2: Auto Teleport Loop
-    local TeleportToggle = TeleportTab:CreateToggle({
-        Name = "Auto Teleport to Crate (Loop)",
-        CurrentValue = false,
-        Flag = "TeleportFlag",
-        Callback = function(Value)
-            _G.AutoTeleport = Value
-            
-            if Value then
-                task.spawn(function()
-                    while _G.AutoTeleport do
-                        local character = localPlayer.Character
-                        local hrp = character and character:FindFirstChild("HumanoidRootPart")
-                        
-                        if hrp and eggCrateAttachment then
-                            hrp.CFrame = CFrame.new(eggCrateAttachment.WorldPosition + Vector3.new(0, 3, 0))
-                        end
-                        
-                        task.wait(1)
+                    task.wait(_G.FarmDelay)
+                    if useBatteryRemote and eggCrateAttachment then
+                        useBatteryRemote:FireServer(eggCrateAttachment)
                     end
-                end)
-            end
-        end,
-    })
+                    task.wait(_G.FarmDelay)
+                end
+            end)
+        end
+    end,
+})
 
-    TeleportTab:CreateSection("Instant Waypoints")
+AutomationTab:CreateSlider({
+    Name = "Farm Speed Delay",
+    Range = {0.1, 2},
+    Increment = 0.1,
+    Suffix = "s",
+    CurrentValue = 0.3,
+    Flag = "DelaySettingSlider",
+    Callback = function(Value)
+        _G.FarmDelay = Value
+    end,
+})
 
-    -- Teleport Buttons
-    TeleportTab:CreateButton({
-        Name = "Teleport to Crate (Once)",
-        Callback = function()
-            local character = localPlayer.Character
-            local hrp = character and character:FindFirstChild("HumanoidRootPart")
-            if hrp and eggCrateAttachment then
-                hrp.CFrame = CFrame.new(eggCrateAttachment.WorldPosition + Vector3.new(0, 3, 0))
-            end
-        end,
-    })
+local TeleportTab = Window:CreateTab("Teleports", 0)
+TeleportTab:CreateSection("Movement")
 
-    TeleportTab:CreateButton({
-        Name = "Teleport to Battery Spawn (Once)",
-        Callback = function()
-            local character = localPlayer.Character
-            local hrp = character and character:FindFirstChild("HumanoidRootPart")
-            if hrp and batteryAttachment then
-                hrp.CFrame = CFrame.new(batteryAttachment.WorldPosition + Vector3.new(0, 3, 0))
-            end
-        end,
-    })
+TeleportTab:CreateToggle({
+    Name = "Auto Teleport to Crate Loop",
+    CurrentValue = false,
+    Flag = "TPLoopToggle",
+    Callback = function(Value)
+        _G.AutoTeleport = Value
+        if Value then
+            task.spawn(function()
+                while _G.AutoTeleport do
+                    local character = localPlayer.Character
+                    local hrp = character and character:FindFirstChild("HumanoidRootPart")
+                    if hrp and eggCrateAttachment then
+                        hrp.CFrame = CFrame.new(eggCrateAttachment.WorldPosition + Vector3.new(0, 3, 0))
+                    end
+                    task.wait(1)
+                end
+            end)
+        end
+    end,
+})
 
-end)
-
-if not success then
-    warn("UI Execution Error log: " .. tostring(err))
-end
+TeleportTab:CreateButton({
+    Name = "Teleport to Crate (Once)",
+    Callback = function()
+        local character = localPlayer.Character
+        local hrp = character and character:FindFirstChild("HumanoidRootPart")
+        if hrp and eggCrateAttachment then
+            hrp.CFrame = CFrame.new(eggCrateAttachment.WorldPosition + Vector3.new(0, 3, 0))
+        end
+    end,
+})
