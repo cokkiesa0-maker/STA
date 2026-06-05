@@ -1,97 +1,62 @@
-local PathfindingService = game:GetService("PathfindingService")
-local TweenService = game:GetService("TweenService")
+-- Services
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
-local player = Players.LocalPlayer
-local character = player.Character or player.CharacterAdded:Wait()
-local rootPart = character:WaitForChild("HumanoidRootPart")
-
--- Remotes
-local Remotes = ReplicatedStorage:WaitForChild("Remotes")
-local GrabBatteryRemote = Remotes:WaitForChild("GrabBatteryRemote")
-local UseBatteryOnCrateRemote = Remotes:WaitForChild("UseBatteryOnCrateRemote")
-
 -- Configuration
-local TWEEN_SPEED = 30 -- Studs per second
-local INTERACT_DISTANCE = 7 -- Distance to trigger remote
+local LocalPlayer = Players.LocalPlayer
+local Remotes = ReplicatedStorage:WaitForChild("Remotes")
+local GrabBattery = Remotes:WaitForChild("GrabBatteryRemote")
+local UseBattery = Remotes:WaitForChild("UseBatteryOnCrateRemote")
 
--- Pathfinding Agent Parameters (To prevent clipping/stucking)
-local path = PathfindingService:CreatePath({
-	AgentRadius = 2,
-	AgentHeight = 5,
-	AgentCanJump = true,
-	AgentCollisionGroup = "Default"
-})
+-- Target Attachments/Positions
+local Terrain = Workspace:WaitForChild("Terrain")
+local BatteryAttachment = Terrain:WaitForChild("BatterySpawnAttachment")
+local CrateAttachment = Terrain:WaitForChild("EggCrateSpawnAttachment")
 
--- Function to move smoothly between points using TweenService at a constant speed
-local function tweenToPosition(targetPosition)
-	local distance = (rootPart.Position - targetPosition).Magnitude
-	local duration = distance / TWEEN_SPEED
-
-	local tweenInfo = TweenInfo.new(duration, Enum.EasingStyle.Linear, Enum.EasingDirection.Out)
-	local tween = TweenService:Create(rootPart, tweenInfo, {CFrame = CFrame.new(targetPosition)})
-	
-	tween:Play()
-	tween.Completed:Wait()
+-- Helper function to safely teleport the character
+local function teleportTo(targetAttachment)
+    local character = LocalPlayer.Character
+    local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+    
+    if rootPart and targetAttachment then
+        -- Teleport slightly above the attachment to avoid clipping
+        rootPart.CFrame = targetAttachment.CFrame * CFrame.new(0, 2, 0)
+        task.wait(0.2) -- Small delay to allow physics/position to sync
+        return true
+    end
+    return false
 end
 
--- Function to navigate the path safely waypoint by waypoint (Avoids Noclip)
-local function walkPathTo(targetAttachment)
-	if not targetAttachment or not targetAttachment:IsA("Attachment") then return false end
-	
-	local success, errorMessage = pcall(function()
-		path:ComputeAsync(rootPart.Position, targetAttachment.WorldPosition)
-	end)
+-- Main Automation Function
+local function startAutoFarm()
+    while true do
+        -- 1. Teleport to Battery and Interact
+        if teleportTo(BatteryAttachment) then
+            GrabBattery:FireServer(BatteryAttachment)
+            task.wait(0.5) -- Wait for server to process the grab
+        end
 
-	if success and path.Status == Enum.PathStatus.Success then
-		local waypoints = path:GetWaypoints()
-		
-		for _, waypoint in ipairs(waypoints) do
-			-- Check if we are close enough to the final destination early
-			if (rootPart.Position - targetAttachment.WorldPosition).Magnitude <= INTERACT_DISTANCE then
-				break
-			end
-			-- Move to the next pathfinding node safely
-			tweenToPosition(waypoint.Position)
-		end
-		return true
-	else
-		warn("Path definition failed: " .. tostring(errorMessage))
-		return false
-	end
+        -- 2. Teleport to Battery Deposit (Crate) and Interact
+        if teleportTo(CrateAttachment) then
+            UseBattery:FireServer(CrateAttachment)
+            task.wait(0.2) -- Wait for server to process the deposit
+            
+            -- 3. Lock position at the deposit for 3 seconds
+            local character = LocalPlayer.Character
+            local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+            
+            if rootPart then
+                -- Anchor the root part to lock position
+                rootPart.Anchored = true
+                task.wait(3)
+                rootPart.Anchored = false
+            end
+        end
+        
+        task.wait(0.5) -- Small cooldown before restarting the loop
+    end
 end
 
--- Main Loop: Scan, Move, Interact
-task.spawn(function()
-	while true do
-		task.wait(1) -- Scan interval
-
-		-- 1. Scan for Battery
-		local batterySpawn = Workspace:WaitForChild("Terrain"):FindFirstChild("BatterySpawnAttachment")
-		if batterySpawn then
-			print("Battery located. Pathfinding...")
-			local reached = walkPathTo(batterySpawn)
-			
-			if reached or (rootPart.Position - batterySpawn.WorldPosition).Magnitude <= INTERACT_DISTANCE then
-				print("Interacting with Battery...")
-				GrabBatteryRemote:FireServer(batterySpawn)
-				task.wait(0.5) -- Small delay to allow inventory update
-			end
-		end
-
-		-- 2. Scan for Battery Deposit (Egg Crate)
-		local crateSpawn = Workspace:WaitForChild("Terrain"):FindFirstChild("EggCrateSpawnAttachment")
-		if crateSpawn then
-			print("Deposit Crate located. Pathfinding...")
-			local reached = walkPathTo(crateSpawn)
-			
-			if reached or (rootPart.Position - crateSpawn.WorldPosition).Magnitude <= INTERACT_DISTANCE then
-				print("Depositing Battery...")
-				UseBatteryOnCrateRemote:FireServer(crateSpawn)
-				task.wait(0.5)
-			end
-		end
-	end
-end)
+-- Start the script
+task.spawn(startAutoFarm)
