@@ -50,6 +50,6 @@ task.spawn(function()
             end
         end
 
-        task.wait(0.1) -- Loop throttle to prevent crashes
+        task.wait(1) -- Loop throttle to prevent crashes
     end
 end)
