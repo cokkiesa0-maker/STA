@@ -10,15 +10,45 @@ local GrabBattery = Remotes:WaitForChild("GrabBatteryRemote")
 local UseBattery = Remotes:WaitForChild("UseBatteryOnCrateRemote")
 local Terrain = Workspace:WaitForChild("Terrain")
 
--- Scan Function
-local function scanForTargets()
-    local battery = Terrain:WaitForChild("BatterySpawnAttachment", 5)
-    local deposit = Terrain:WaitForChild("EggCrateSpawnAttachment", 5)
-    
-    if battery and deposit then
-        return battery, deposit
+-- Wait for Map and Assets to Load
+local function waitForGameToLoad()
+    print("[Loader] Waiting for game instance to fully load...")
+    if not game:IsLoaded() then
+        game.Loaded:Wait()
     end
-    return nil, nil
+    
+    print("[Loader] Checking map streaming status...")
+    -- Ensure player character is spawned and stable
+    local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+    character:WaitForChild("HumanoidRootPart")
+
+    local battery = nil
+    local deposit = nil
+    local retries = 0
+    local maxRetries = 30 -- Prevents infinite loops if names changed
+
+    -- Continuous scanning loop for map assets
+    while not (battery and deposit) and retries < maxRetries do
+        print(string.format("[Loader] Scanning for attachments... (Attempt %d/%d)", retries + 1, maxRetries))
+        
+        battery = Terrain:FindFirstChild("BatterySpawnAttachment")
+        deposit = Terrain:FindFirstChild("EggCrateSpawnAttachment")
+        
+        if battery and deposit then
+            break
+        end
+        
+        retries = retries + 1
+        task.wait(1) -- Wait 1 second between map scans
+    end
+
+    if battery and deposit then
+        print("[Loader] Map, Battery, and Deposit successfully loaded!")
+        return battery, deposit
+    else
+        warn("[Loader] Critical Failure: Map assets failed to load within the time limit.")
+        return nil, nil
+    end
 end
 
 -- Teleport Helper
@@ -28,7 +58,7 @@ local function teleportTo(targetAttachment)
     
     if rootPart and targetAttachment then
         rootPart.CFrame = targetAttachment.CFrame * CFrame.new(0, 2, 0)
-        task.wait(0.25) -- Safe delay for physics sync
+        task.wait(0.25) -- Physics sync delay
         return true
     end
     return false
@@ -36,17 +66,15 @@ end
 
 -- Main Automation
 local function startAutoFarm()
-    local battery, deposit = scanForTargets()
-    if not (battery and deposit) then 
-        warn("Target scan failed. Script stopped.")
-        return 
-    end
+    -- Absolute block until map conditions are met
+    local battery, deposit = waitForGameToLoad()
+    if not (battery and deposit) then return end
 
     while true do
         -- 1. Teleport to Battery & Grab
         if teleportTo(battery) then
             GrabBattery:FireServer(battery)
-            task.wait(0.3) -- Short delay to ensure server registers the grab
+            task.wait(0.3)
         end
 
         -- 2. Teleport to Deposit & Use
@@ -64,7 +92,7 @@ local function startAutoFarm()
             end
         end
         
-        task.wait(0.5) -- Loop cooldown
+        task.wait(0.5) -- Loop safety delay
     end
 end
 
