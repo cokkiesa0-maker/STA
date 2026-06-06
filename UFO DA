@@ -1,86 +1,121 @@
--- Configuration & Core Variables
+-- Services
 local Players = game:GetService("Players")
-local CoreGui = game:GetService("CoreGui")
-local TweenService = game:GetService("TweenService")
-local ProximityPromptService = game:GetService("ProximityPromptService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
 
-local localPlayer = Players.LocalPlayer
-local _G = getgenv and getgenv() or _G
-_G.AutoWaterActive = false
+-- Player & Data References
+local player = Players.LocalPlayer
+local farmablePlants = player:WaitForChild("Data"):WaitForChild("FarmablePlants")
+local waterRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("WaterPlantRemote")
 
--- Clean existing UI if re-executed
-local oldGui = CoreGui:FindFirstChild("AutoWaterUI")
-if oldGui then oldGui:Destroy() end
+-- Configuration
+local PLANT_IDS = {8, 9, 10} -- Plants to water
+local CHECK_INTERVAL = 3 -- Seconds between checks
+local WATER_DELAY = 1 -- Seconds between watering actions
+local BUTTON_SIZE = UDim2.new(0, 120, 0, 50)
+local BUTTON_POSITION = UDim2.new(0.05, 0, 0.8, 0) -- Bottom-left corner
 
--- Create Mobile UI Button
-local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "AutoWaterUI"
-screenGui.ResetOnSpawn = false
-screenGui.Parent = CoreGui
+-- State Tracking
+local isAutoWaterEnabled = false
+local toggleConnection = nil
 
-local mainButton = Instance.new("TextButton")
-mainButton.Size = UDim2.new(0, 120, 0, 45)
-mainButton.Position = UDim2.new(0.1, 0, 0.4, 0)
-mainButton.BackgroundColor3 = Color3.fromRGB(240, 70, 70) -- Red (Off)
-mainButton.Text = "Water: OFF"
-mainButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-mainButton.Font = Enum.Font.SourceSansBold
-mainButton.TextSize = 16
-mainButton.Active = true
-mainButton.Draggable = true -- Drag anywhere on mobile
-mainButton.Parent = screenGui
+-- Create Mobile Toggle Button
+local function createToggleButton()
+    -- ScreenGui container
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "AutoWaterGui"
+    screenGui.Parent = player.PlayerGui
 
-local uiCorner = Instance.new("UICorner")
-uiCorner.CornerRadius = UDim.new(0, 8)
-uiCorner.Parent = mainButton
+    -- Main Button
+    local toggleButton = Instance.new("TextButton")
+    toggleButton.Name = "ToggleAutoWater"
+    toggleButton.Size = BUTTON_SIZE
+    toggleButton.Position = BUTTON_POSITION
+    toggleButton.BackgroundColor3 = Color3.new(1, 0.2, 0.2) -- Red when off
+    toggleButton.TextColor3 = Color3.new(1, 1, 1)
+    toggleButton.Text = "Auto-Water: OFF"
+    toggleButton.Font = Enum.Font.SourceSansBold
+    toggleButton.TextScaled = true
+    toggleButton.Parent = screenGui
 
--- Visual transition helper
-local function tweenColor(targetColor)
-    TweenService:Create(mainButton, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {BackgroundColor3 = targetColor}):Play()
+    -- Add touch/mouse support
+    toggleButton.MouseButton1Click:Connect(function()
+        isAutoWaterEnabled = not isAutoWaterEnabled
+        -- Update button appearance
+        if isAutoWaterEnabled then
+            toggleButton.BackgroundColor3 = Color3.new(0.2, 1, 0.2) -- Green when on
+            toggleButton.Text = "Auto-Water: ON"
+            print("Auto-water enabled!")
+            startAutoWaterLoop()
+        else
+            toggleButton.BackgroundColor3 = Color3.new(1, 0.2, 0.2) -- Red when off
+            toggleButton.Text = "Auto-Water: OFF"
+            print("Auto-water disabled!")
+            stopAutoWaterLoop()
+        end
+    end)
+
+    -- Make button visible only on mobile
+    local function updateButtonVisibility()
+        toggleButton.Visible = UserInputService.TouchEnabled and not UserInputService.MouseEnabled
+    end
+    updateButtonVisibility()
+    UserInputService.TouchEnabledChanged:Connect(updateButtonVisibility)
+    UserInputService.MouseEnabledChanged:Connect(updateButtonVisibility)
+
+    return toggleButton
 end
 
--- Function to find and fire Proximity Prompts
-local function triggerCropPrompts()
-    -- Look through Workspace or Player Data for prompts related to your crops
-    for _, desc in ipairs(workspace:GetDescendants()) do
-        if desc:IsA("ProximityPrompt") then
-            -- Verifies the prompt is related to watering or crops based on common naming conventions
-            local nameLower = desc.Name:lower()
-            local objectLower = desc.ObjectText:lower()
-            local actionLower = desc.ActionText:lower()
-            
-            if nameLower:find("water") or objectLower:find("plant") or actionLower:find("water") or nameLower:find("crop") then
-                -- Direct proximity simulation
-                task.spawn(function()
-                    desc:InputHoldBegin()
-                    task.wait(desc.HoldDuration + 0.05) -- Dynamically scales to the crop's required hold time
-                    desc:InputHoldEnd()
-                end)
-            end
+-- Helper: Check if a plant needs water
+local function plantNeedsWater(plant)
+    if plant:FindFirstChild("NeedsWater") then
+        return plant.NeedsWater.Value
+    elseif plant:FindFirstChild("WaterLevel") then
+        return plant.WaterLevel.Value < 50
+    end
+    return true -- Fallback
+end
+
+-- Helper: Water selected plants
+local function waterPlants()
+    local plantsToWater = {}
+    for _, id in ipairs(PLANT_IDS) do
+        local plant = farmablePlants:FindFirstChild(tostring(id))
+        if plant and plantNeedsWater(plant) then
+            table.insert(plantsToWater, plant)
         end
+    end
+
+    if #plantsToWater > 0 then
+        print("Watering " .. #plantsToWater .. " plants...")
+        waterRemote:InvokeServer({unpack(plantsToWater)})
+        task.wait(WATER_DELAY)
     end
 end
 
--- Main Automation Loop
-local function startLoop()
-    task.spawn(function()
-        while _G.AutoWaterActive do
-            pcall(triggerCropPrompts)
-            task.wait(0.3) -- Fast polling interval
+-- Auto-Water Loop Functions
+function startAutoWaterLoop()
+    -- Stop existing loop if running
+    if toggleConnection then
+        toggleConnection:Disconnect()
+    end
+    -- Start new loop
+    toggleConnection = RunService.Heartbeat:Connect(function()
+        task.wait(CHECK_INTERVAL)
+        if isAutoWaterEnabled and farmablePlants and waterRemote then
+            waterPlants()
         end
     end)
 end
 
--- Mobile Interaction Setup
-mainButton.MouseButton1Click:Connect(function()
-    _G.AutoWaterActive = not _G.AutoWaterActive
-    
-    if _G.AutoWaterActive then
-        mainButton.Text = "Water: ON"
-        tweenColor(Color3.fromRGB(70, 240, 120)) -- Green
-        startLoop()
-    else
-        mainButton.Text = "Water: OFF"
-        tweenColor(Color3.fromRGB(240, 70, 70)) -- Red
+function stopAutoWaterLoop()
+    if toggleConnection then
+        toggleConnection:Disconnect()
+        toggleConnection = nil
     end
-end)
+end
+
+-- Initialize
+print("Auto-water system loaded - tap the button to enable!")
+createToggleButton()
