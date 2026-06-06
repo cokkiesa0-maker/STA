@@ -1,13 +1,10 @@
 -- Configuration & Core Variables
 local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CoreGui = game:GetService("CoreGui")
 local TweenService = game:GetService("TweenService")
+local ProximityPromptService = game:GetService("ProximityPromptService")
 
 local localPlayer = Players.LocalPlayer
-local farmablePlants = localPlayer:WaitForChild("Data"):WaitForChild("FarmablePlants")
-local waterRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("WaterPlantRemote")
-
 local _G = getgenv and getgenv() or _G
 _G.AutoWaterActive = false
 
@@ -15,7 +12,7 @@ _G.AutoWaterActive = false
 local oldGui = CoreGui:FindFirstChild("AutoWaterUI")
 if oldGui then oldGui:Destroy() end
 
--- Create Mobile UI
+-- Create Mobile UI Button
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "AutoWaterUI"
 screenGui.ResetOnSpawn = false
@@ -23,14 +20,14 @@ screenGui.Parent = CoreGui
 
 local mainButton = Instance.new("TextButton")
 mainButton.Size = UDim2.new(0, 120, 0, 45)
-mainButton.Position = UDim2.new(0.1, 0, 0.4, 0) -- Positioned safely for mobile screens
-mainButton.BackgroundColor3 = Color3.fromRGB(240, 70, 70) -- Initial Red (Off)
+mainButton.Position = UDim2.new(0.1, 0, 0.4, 0)
+mainButton.BackgroundColor3 = Color3.fromRGB(240, 70, 70) -- Red (Off)
 mainButton.Text = "Water: OFF"
 mainButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 mainButton.Font = Enum.Font.SourceSansBold
 mainButton.TextSize = 16
 mainButton.Active = true
-mainButton.Draggable = true -- Allows mobile users to drag button out of the way
+mainButton.Draggable = true -- Drag anywhere on mobile
 mainButton.Parent = screenGui
 
 local uiCorner = Instance.new("UICorner")
@@ -42,28 +39,34 @@ local function tweenColor(targetColor)
     TweenService:Create(mainButton, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {BackgroundColor3 = targetColor}):Play()
 end
 
--- Fallback Remote Execution Handler
-local function fireRemote(plants)
-    pcall(function()
-        -- Strategy A: Dynamic unpack execution via InvokeServer
-        if waterRemote:IsA("RemoteFunction") then
-            waterRemote:InvokeServer(unpack(plants))
-        -- Strategy B: Fallback fire execution via RemoteEvent
-        elseif waterRemote:IsA("RemoteEvent") then
-            waterRemote:FireServer(unpack(plants))
+-- Function to find and fire Proximity Prompts
+local function triggerCropPrompts()
+    -- Look through Workspace or Player Data for prompts related to your crops
+    for _, desc in ipairs(workspace:GetDescendants()) do
+        if desc:IsA("ProximityPrompt") then
+            -- Verifies the prompt is related to watering or crops based on common naming conventions
+            local nameLower = desc.Name:lower()
+            local objectLower = desc.ObjectText:lower()
+            local actionLower = desc.ActionText:lower()
+            
+            if nameLower:find("water") or objectLower:find("plant") or actionLower:find("water") or nameLower:find("crop") then
+                -- Direct proximity simulation
+                task.spawn(function()
+                    desc:InputHoldBegin()
+                    task.wait(desc.HoldDuration + 0.05) -- Dynamically scales to the crop's required hold time
+                    desc:InputHoldEnd()
+                end)
+            end
         end
-    end)
+    end
 end
 
 -- Main Automation Loop
 local function startLoop()
     task.spawn(function()
         while _G.AutoWaterActive do
-            local plants = farmablePlants:GetChildren()
-            if #plants > 0 then
-                fireRemote(plants)
-            end
-            task.wait(0.5) -- Anti-kick / rate-limiting buffer
+            pcall(triggerCropPrompts)
+            task.wait(0.3) -- Fast polling interval
         end
     end)
 end
