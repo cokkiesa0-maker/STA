@@ -15,7 +15,7 @@ _G.AutoWaterActive = false
 local oldGui = CoreGui:FindFirstChild("AutoWaterUI")
 if oldGui then oldGui:Destroy() end
 
--- Create Mobile-Friendly UI Elements
+-- Create Mobile UI
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "AutoWaterUI"
 screenGui.ResetOnSpawn = false
@@ -23,42 +23,52 @@ screenGui.Parent = CoreGui
 
 local mainButton = Instance.new("TextButton")
 mainButton.Size = UDim2.new(0, 120, 0, 45)
-mainButton.Position = UDim2.new(0.1, 0, 0.4, 0) -- Safely positioned on screen for mobile
+mainButton.Position = UDim2.new(0.1, 0, 0.4, 0) -- Positioned safely for mobile screens
 mainButton.BackgroundColor3 = Color3.fromRGB(240, 70, 70) -- Initial Red (Off)
 mainButton.Text = "Water: OFF"
 mainButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 mainButton.Font = Enum.Font.SourceSansBold
 mainButton.TextSize = 16
 mainButton.Active = true
-mainButton.Draggable = true -- Allows mobile players to drag it out of the way
+mainButton.Draggable = true -- Allows mobile users to drag button out of the way
 mainButton.Parent = screenGui
 
 local uiCorner = Instance.new("UICorner")
 uiCorner.CornerRadius = UDim.new(0, 8)
 uiCorner.Parent = mainButton
 
--- Smooth Color Transition Helper
+-- Visual transition helper
 local function tweenColor(targetColor)
     TweenService:Create(mainButton, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {BackgroundColor3 = targetColor}):Play()
 end
 
--- Main Automation Loop Function
+-- Fallback Remote Execution Handler
+local function fireRemote(plants)
+    pcall(function()
+        -- Strategy A: Dynamic unpack execution via InvokeServer
+        if waterRemote:IsA("RemoteFunction") then
+            waterRemote:InvokeServer(unpack(plants))
+        -- Strategy B: Fallback fire execution via RemoteEvent
+        elseif waterRemote:IsA("RemoteEvent") then
+            waterRemote:FireServer(unpack(plants))
+        end
+    end)
+end
+
+-- Main Automation Loop
 local function startLoop()
     task.spawn(function()
         while _G.AutoWaterActive do
             local plants = farmablePlants:GetChildren()
             if #plants > 0 then
-                pcall(function()
-                    -- Fires remote with current plants array
-                    waterRemote:FireServer(unpack(plants)) 
-                end)
+                fireRemote(plants)
             end
-            task.wait(0.5) -- Balance between interaction speed and anti-cheat triggers
+            task.wait(0.5) -- Anti-kick / rate-limiting buffer
         end
     end)
 end
 
--- Toggle Interaction Logic
+-- Mobile Interaction Setup
 mainButton.MouseButton1Click:Connect(function()
     _G.AutoWaterActive = not _G.AutoWaterActive
     
