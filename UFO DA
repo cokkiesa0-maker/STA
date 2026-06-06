@@ -1,44 +1,73 @@
--- Configuration
+-- Configuration & Core Variables
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local CoreGui = game:GetService("CoreGui")
+local TweenService = game:GetService("TweenService")
+
+local localPlayer = Players.LocalPlayer
+local farmablePlants = localPlayer:WaitForChild("Data"):WaitForChild("FarmablePlants")
+local waterRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("WaterPlantRemote")
+
 local _G = getgenv and getgenv() or _G
-_G.AutoWaterToggle = not _G.AutoWaterToggle -- Toggles true/false each time you run it
+_G.AutoWaterActive = false
 
--- Define the crop data paths
-local farmablePlants = game:GetService("Players").LocalPlayer:WaitForChild("Data"):WaitForChild("FarmablePlants")
-local waterRemote = game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("WaterPlantRemote")
+-- Clean existing UI if re-executed
+local oldGui = CoreGui:FindFirstChild("AutoWaterUI")
+if oldGui then oldGui:Destroy() end
 
--- Array of plant instances to water
-local plantArgs = {
-    farmablePlants:WaitForChild("79"),
-    farmablePlants:WaitForChild("88"),
-    farmablePlants:WaitForChild("78"),
-    farmablePlants:WaitForChild("89"),
-    farmablePlants:WaitForChild("68")
-}
+-- Create Mobile-Friendly UI Elements
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "AutoWaterUI"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = CoreGui
 
--- Notification helper
-local function notify(status)
-    game:GetService("StarterGui"):SetCore("SendNotification", {
-        Title = "Auto Water",
-        Text = status,
-        Duration = 2
-    })
+local mainButton = Instance.new("TextButton")
+mainButton.Size = UDim2.new(0, 120, 0, 45)
+mainButton.Position = UDim2.new(0.1, 0, 0.4, 0) -- Safely positioned on screen for mobile
+mainButton.BackgroundColor3 = Color3.fromRGB(240, 70, 70) -- Initial Red (Off)
+mainButton.Text = "Water: OFF"
+mainButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+mainButton.Font = Enum.Font.SourceSansBold
+mainButton.TextSize = 16
+mainButton.Active = true
+mainButton.Draggable = true -- Allows mobile players to drag it out of the way
+mainButton.Parent = screenGui
+
+local uiCorner = Instance.new("UICorner")
+uiCorner.CornerRadius = UDim.new(0, 8)
+uiCorner.Parent = mainButton
+
+-- Smooth Color Transition Helper
+local function tweenColor(targetColor)
+    TweenService:Create(mainButton, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {BackgroundColor3 = targetColor}):Play()
 end
 
--- Main Loop Logic
-if _G.AutoWaterToggle then
-    notify("Enabled")
-    
+-- Main Automation Loop Function
+local function startLoop()
     task.spawn(function()
-        while _G.AutoWaterToggle do
-            -- Safely invoke the server with the unpacked plant list
-            pcall(function()
-                waterRemote:InvokeServer(unpack(plantArgs))
-            end)
-            
-            -- Adjust the wait time (in seconds) to prevent rate-limiting/lag
-            task.wait(1) 
+        while _G.AutoWaterActive do
+            local plants = farmablePlants:GetChildren()
+            if #plants > 0 then
+                pcall(function()
+                    -- Fires remote with current plants array
+                    waterRemote:FireServer(unpack(plants)) 
+                end)
+            end
+            task.wait(0.5) -- Balance between interaction speed and anti-cheat triggers
         end
     end)
-else
-    notify("Disabled")
 end
+
+-- Toggle Interaction Logic
+mainButton.MouseButton1Click:Connect(function()
+    _G.AutoWaterActive = not _G.AutoWaterActive
+    
+    if _G.AutoWaterActive then
+        mainButton.Text = "Water: ON"
+        tweenColor(Color3.fromRGB(70, 240, 120)) -- Green
+        startLoop()
+    else
+        mainButton.Text = "Water: OFF"
+        tweenColor(Color3.fromRGB(240, 70, 70)) -- Red
+    end
+end)
