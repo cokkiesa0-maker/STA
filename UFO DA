@@ -1,121 +1,81 @@
 -- Services
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 
--- Player & Data References
+-- Player & Core References
 local player = Players.LocalPlayer
-local farmablePlants = player:WaitForChild("Data"):WaitForChild("FarmablePlants")
+local farmablePlantsFolder = player:WaitForChild("Data"):WaitForChild("FarmablePlants")
 local waterRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("WaterPlantRemote")
 
+-- Tracked Plant IDs (matches your original list)
+local TARGET_PLANTS = {8, 9, 10}
+
 -- Configuration
-local PLANT_IDS = {8, 9, 10} -- Plants to water
-local CHECK_INTERVAL = 3 -- Seconds between checks
-local WATER_DELAY = 1 -- Seconds between watering actions
-local BUTTON_SIZE = UDim2.new(0, 120, 0, 50)
-local BUTTON_POSITION = UDim2.new(0.05, 0, 0.8, 0) -- Bottom-left corner
+local CHECK_FREQUENCY = 2 -- How often to check plant status (seconds)
+local MIN_WATER_LEVEL = 40 -- Threshold for when plants need water (adjust as needed)
 
--- State Tracking
-local isAutoWaterEnabled = false
-local toggleConnection = nil
+-- Main Detection Function
+local function getDryPlants()
+    local dryPlants = {}
+    
+    -- Check each target plant
+    for _, plantId in ipairs(TARGET_PLANTS) do
+        local plantData = farmablePlantsFolder:FindFirstChild(tostring(plantId))
+        if not plantData then continue end -- Skip if plant data missing
 
--- Create Mobile Toggle Button
-local function createToggleButton()
-    -- ScreenGui container
-    local screenGui = Instance.new("ScreenGui")
-    screenGui.Name = "AutoWaterGui"
-    screenGui.Parent = player.PlayerGui
-
-    -- Main Button
-    local toggleButton = Instance.new("TextButton")
-    toggleButton.Name = "ToggleAutoWater"
-    toggleButton.Size = BUTTON_SIZE
-    toggleButton.Position = BUTTON_POSITION
-    toggleButton.BackgroundColor3 = Color3.new(1, 0.2, 0.2) -- Red when off
-    toggleButton.TextColor3 = Color3.new(1, 1, 1)
-    toggleButton.Text = "Auto-Water: OFF"
-    toggleButton.Font = Enum.Font.SourceSansBold
-    toggleButton.TextScaled = true
-    toggleButton.Parent = screenGui
-
-    -- Add touch/mouse support
-    toggleButton.MouseButton1Click:Connect(function()
-        isAutoWaterEnabled = not isAutoWaterEnabled
-        -- Update button appearance
-        if isAutoWaterEnabled then
-            toggleButton.BackgroundColor3 = Color3.new(0.2, 1, 0.2) -- Green when on
-            toggleButton.Text = "Auto-Water: ON"
-            print("Auto-water enabled!")
-            startAutoWaterLoop()
-        else
-            toggleButton.BackgroundColor3 = Color3.new(1, 0.2, 0.2) -- Red when off
-            toggleButton.Text = "Auto-Water: OFF"
-            print("Auto-water disabled!")
-            stopAutoWaterLoop()
+        -- Detect if plant needs water (adjust logic to match YOUR game's setup!)
+        local needsWater = false
+        if plantData:FindFirstChild("NeedsWater") then
+            -- Case 1: Game uses a boolean flag
+            needsWater = plantData.NeedsWater.Value
+        elseif plantData:FindFirstChild("WaterLevel") then
+            -- Case 2: Game uses a numeric water level
+            needsWater = plantData.WaterLevel.Value < MIN_WATER_LEVEL
+        elseif plantData:FindFirstChild("GrowthStage") then
+            -- Case 3: Game uses growth stage (optional fallback)
+            needsWater = plantData.GrowthStage.Value > 0 -- Only water growing plants
         end
-    end)
 
-    -- Make button visible only on mobile
-    local function updateButtonVisibility()
-        toggleButton.Visible = UserInputService.TouchEnabled and not UserInputService.MouseEnabled
-    end
-    updateButtonVisibility()
-    UserInputService.TouchEnabledChanged:Connect(updateButtonVisibility)
-    UserInputService.MouseEnabledChanged:Connect(updateButtonVisibility)
-
-    return toggleButton
-end
-
--- Helper: Check if a plant needs water
-local function plantNeedsWater(plant)
-    if plant:FindFirstChild("NeedsWater") then
-        return plant.NeedsWater.Value
-    elseif plant:FindFirstChild("WaterLevel") then
-        return plant.WaterLevel.Value < 50
-    end
-    return true -- Fallback
-end
-
--- Helper: Water selected plants
-local function waterPlants()
-    local plantsToWater = {}
-    for _, id in ipairs(PLANT_IDS) do
-        local plant = farmablePlants:FindFirstChild(tostring(id))
-        if plant and plantNeedsWater(plant) then
-            table.insert(plantsToWater, plant)
+        -- Add to list if dry
+        if needsWater then
+            table.insert(dryPlants, plantData)
         end
     end
 
-    if #plantsToWater > 0 then
-        print("Watering " .. #plantsToWater .. " plants...")
-        waterRemote:InvokeServer({unpack(plantsToWater)})
-        task.wait(WATER_DELAY)
+    return dryPlants
+end
+
+-- Interaction Function
+local function waterDryPlants()
+    local dryPlants = getDryPlants()
+    
+    -- Only trigger remote if there are dry plants
+    if #dryPlants > 0 then
+        print(string.format("Detected %d dry plant(s) - watering now!", #dryPlants))
+        -- Match the original argument structure exactly
+        local args = {dryPlants}
+        waterRemote:InvokeServer(unpack(args))
+    else
+        print("All tracked plants are watered - no action needed.")
     end
 end
 
--- Auto-Water Loop Functions
-function startAutoWaterLoop()
-    -- Stop existing loop if running
-    if toggleConnection then
-        toggleConnection:Disconnect()
-    end
-    -- Start new loop
-    toggleConnection = RunService.Heartbeat:Connect(function()
-        task.wait(CHECK_INTERVAL)
-        if isAutoWaterEnabled and farmablePlants and waterRemote then
-            waterPlants()
-        end
-    end)
-end
+-- Initial Check & Loop
+print("Plant water detection system active!")
+-- First check immediately when script loads
+waterDryPlants()
 
-function stopAutoWaterLoop()
-    if toggleConnection then
-        toggleConnection:Disconnect()
-        toggleConnection = nil
-    end
-end
+-- Continuous monitoring loop
+local checkConnection = RunService.Heartbeat:Connect(function()
+    task.wait(CHECK_FREQUENCY)
+    waterDryPlants()
+end)
 
--- Initialize
-print("Auto-water system loaded - tap the button to enable!")
-createToggleButton()
+-- Safety cleanup (stops checks if script is destroyed)
+script.Destroying:Connect(function()
+    if checkConnection then
+        checkConnection:Disconnect()
+    end
+    print("Plant water detection stopped.")
+end)
