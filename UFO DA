@@ -1,4 +1,4 @@
--- Core Services & Setup
+-- Configuration & Core Services
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CoreGui = game:GetService("CoreGui")
@@ -10,11 +10,11 @@ local waterRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Wate
 local _G = getgenv and getgenv() or _G
 _G.AutoWaterActive = false
 
--- Clean up older UI instances
+-- Remove prior UI duplicate
 local oldGui = CoreGui:FindFirstChild("WaterUI")
 if oldGui then oldGui:Destroy() end
 
--- Mobile Toggle UI
+-- Mobile Interface Configuration
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "WaterUI"
 screenGui.ResetOnSpawn = false
@@ -22,57 +22,48 @@ screenGui.Parent = CoreGui
 
 local toggleButton = Instance.new("TextButton")
 toggleButton.Size = UDim2.new(0, 130, 0, 45)
-toggleButton.Position = UDim2.new(0.1, 0, 0.35, 0) -- Visible mobile placement
-toggleButton.BackgroundColor3 = Color3.fromRGB(240, 75, 75) -- Red (Off)
+toggleButton.Position = UDim2.new(0.1, 0, 0.35, 0)
+toggleButton.BackgroundColor3 = Color3.fromRGB(240, 75, 75) -- Off: Red
 toggleButton.Text = "Auto Water: OFF"
 toggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 toggleButton.Font = Enum.Font.SourceSansBold
 toggleButton.TextSize = 16
 toggleButton.Active = true
-toggleButton.Draggable = true -- Allows moving the button on mobile screens
+toggleButton.Draggable = true -- Mobile drag capability
 toggleButton.Parent = screenGui
 
 local uiCorner = Instance.new("UICorner")
 uiCorner.CornerRadius = UDim.new(0, 8)
 uiCorner.Parent = toggleButton
 
--- Automation Loop
+-- Automation Thread
 local function startWaterLoop()
     task.spawn(function()
         while _G.AutoWaterActive do
-            -- Dynamically fetch the current target plant IDs from your script ("9", "10", "8")
-            local targetIds = {"9", "10", "8"}
-            local plantsToWater = {}
+            local currentPlants = farmablePlants:GetChildren()
             
-            for _, id in ipairs(targetIds) do
-                local plant = farmablePlants:FindFirstChild(id)
-                if plant then
-                    table.insert(plantsToWater, plant)
-                end
-            end
-            
-            -- Only fire if the targeted plants exist
-            if #plantsToWater > 0 then
+            if #currentPlants > 0 then
                 pcall(function()
-                    waterRemote:InvokeServer(plantsToWater)
+                    -- Replicates the exact double-nested table syntax: InvokeServer({ [1]=plant, [2]=plant })
+                    waterRemote:InvokeServer(currentPlants)
                 end)
             end
             
-            task.wait(0.5) -- Interval delay to prevent server lag or rate-limits
+            task.wait(0.3) -- Stable loop interval
         end
     end)
 end
 
--- Button Logic
+-- Input Event
 toggleButton.MouseButton1Click:Connect(function()
     _G.AutoWaterActive = not _G.AutoWaterActive
     
     if _G.AutoWaterActive then
         toggleButton.Text = "Auto Water: ON"
-        toggleButton.BackgroundColor3 = Color3.fromRGB(75, 240, 125) -- Green
+        toggleButton.BackgroundColor3 = Color3.fromRGB(75, 240, 125) -- On: Green
         startWaterLoop()
     else
         toggleButton.Text = "Auto Water: OFF"
-        toggleButton.BackgroundColor3 = Color3.fromRGB(240, 75, 75) -- Red
+        toggleButton.BackgroundColor3 = Color3.fromRGB(240, 75, 75)
     end
 end)
