@@ -1,71 +1,44 @@
--- Services
-local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Workspace = game:GetService("Workspace")
+-- Configuration
+local _G = getgenv and getgenv() or _G
+_G.AutoWaterToggle = not _G.AutoWaterToggle -- Toggles true/false each time you run it
 
-local LocalPlayer = Players.LocalPlayer
+-- Define the crop data paths
+local farmablePlants = game:GetService("Players").LocalPlayer:WaitForChild("Data"):WaitForChild("FarmablePlants")
+local waterRemote = game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("WaterPlantRemote")
 
--- Remotes
-local Remotes = ReplicatedStorage:WaitForChild("Remotes")
-local GrabBatteryRemote = Remotes:WaitForChild("GrabBatteryRemote")
-local UseBatteryRemote = Remotes:WaitForChild("UseBatteryOnPowerCellRemote")
+-- Array of plant instances to water
+local plantArgs = {
+    farmablePlants:WaitForChild("79"),
+    farmablePlants:WaitForChild("88"),
+    farmablePlants:WaitForChild("78"),
+    farmablePlants:WaitForChild("89"),
+    farmablePlants:WaitForChild("68")
+}
 
--- Global toggle
-_G.AutoBattery = true
-
--- Function to safely find objects anywhere in the workspace
-local function findObject(name)
-    return Workspace:FindFirstChild(name, true)
+-- Notification helper
+local function notify(status)
+    game:GetService("StarterGui"):SetCore("SendNotification", {
+        Title = "Auto Water",
+        Text = status,
+        Duration = 2
+    })
 end
 
--- Function to safely teleport the player
-local function teleportTo(targetInstance)
-    if not targetInstance then return false end
+-- Main Loop Logic
+if _G.AutoWaterToggle then
+    notify("Enabled")
     
-    local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-    local rootPart = character:WaitForChild("HumanoidRootPart", 2)
-    
-    if rootPart then
-        local targetCFrame = targetInstance:IsA("Attachment") and targetInstance.WorldCFrame or targetInstance.CFrame
-        rootPart.CFrame = targetCFrame * CFrame.new(0, 2, 0)
-        task.wait(0.2)
-        return true
-    end
-    return false
+    task.spawn(function()
+        while _G.AutoWaterToggle do
+            -- Safely invoke the server with the unpacked plant list
+            pcall(function()
+                waterRemote:InvokeServer(unpack(plantArgs))
+            end)
+            
+            -- Adjust the wait time (in seconds) to prevent rate-limiting/lag
+            task.wait(1) 
+        end
+    end)
+else
+    notify("Disabled")
 end
-
--- Main Automation Loop
-task.spawn(function()
-    print("[Auto] Absolute Path Script Started!")
-    
-    while _G.AutoBattery do
-        -- Dynamically locate targets anywhere in the game world
-        local battery = findObject("BatterySpawnAttachment")
-        local deposit = findObject("ShipPowerCellAttachment")
-        
-        -- 1. Grab Battery
-        if battery then
-            print("[Auto] Moving to Battery...")
-            if teleportTo(battery) then
-                GrabBatteryRemote:FireServer(battery)
-                task.wait(0.5)
-            end
-        else
-            warn("[Auto] BatterySpawnAttachment not found anywhere in Workspace!")
-        end
-        
-        -- 2. Deposit Battery
-        if deposit then
-            print("[Auto] Moving to Deposit...")
-            if teleportTo(deposit) then
-                UseBatteryRemote:FireServer(deposit)
-                task.wait(1)
-            end
-        else
-            warn("[Auto] ShipPowerCellAttachment not found anywhere in Workspace!")
-        end
-        
-        task.wait(0.5)
-    end
-    print("[Auto] Script Stopped.")
-end)
